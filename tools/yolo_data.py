@@ -10,6 +10,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import shutil
 from pathlib import Path
@@ -186,6 +187,7 @@ class OldLabelReviewer:
         """Create one review crop for every selected-class label."""
         self.crop_dir.mkdir(parents=True, exist_ok=True)
         self.items = []
+        manifest = []
         for image_path in self.images:
             label_path = self.labels_root / image_path.parent.name / f"{image_path.stem}.txt"
             frame = cv2.imread(str(image_path))
@@ -200,6 +202,17 @@ class OldLabelReviewer:
                 crop_path = self.crop_dir / f"{image_path.parent.name}_{image_path.stem}_{box_index:04d}.jpg"
                 cv2.imwrite(str(crop_path), crop)
                 self.items.append((crop_path, label_path, box))
+                manifest.append(
+                    {
+                        "crop": crop_path.name,
+                        "label": str(label_path.relative_to(self.dataset)),
+                        "class_id": self.class_id,
+                        "box": list(box),
+                    }
+                )
+        (self.crop_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         print(f"Review crops created: {len(self.items)}")
 
     def remove_current_label(self) -> None:
@@ -274,6 +287,43 @@ class OldLabelReviewer:
                 cv2.destroyAllWindows()
                 return
         cv2.destroyAllWindows()
+
+
+def apply_crop_review(args: argparse.Namespace) -> None:
+    """Update labels from the crop files that remain after manual review."""
+    crops = Path(args.crops)
+    manifest_path = crops / "manifest.json"
+    if not manifest_path.exists():
+        raise SystemExit(f"Missing crop manifest: {manifest_path}. Run review-old once to create it.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    grouped: dict[str, list[dict]] = {}
+    for item in manifest:
+        if item["class_id"] == args.class_id:
+            grouped.setdefault(item["label"], []).append(item)
+    removed = 0
+    kept = 0
+    for relative_label, items in grouped.items():
+        label_path = Path(args.dataset) / relative_label
+        source_candidates = list((Path(args.dataset) / "images" / label_path.parent.name).glob(f"{label_path.stem}.*"))
+        if not source_candidates:
+            continue
+        source = cv2.imread(str(source_candidates[0]))
+        if source is None:
+            continue
+        height, width = source.shape[:2]
+        current = read_labels(label_path, width, height)
+        accepted = [tuple(item["box"]) for item in items if (crops / item["crop"]).exists()]
+        remaining = list(current)
+        filtered = []
+        for label in remaining:
+            if label[0] == args.class_id and label[1] in accepted:
+                filtered.append(label)
+                accepted.remove(label[1])
+            else:
+                removed += 1
+        kept += len(filtered)
+        write_labels(label_path, filtered, width, height)
+    print(f"Applied crop review: kept {kept} boxes, removed {removed} boxes")
 
 
 class Annotator:
@@ -407,6 +457,11 @@ def main() -> None:
     review.add_argument("--class-id", type=int, default=9)
     review.add_argument("--split", choices=("all", "train", "val"), default="all")
     review.set_defaults(func=lambda a: OldLabelReviewer(a.dataset, a.split, a.class_id).run())
+    apply_review = sub.add_parser("apply-crop-review", help="apply manually deleted crop files to labels")
+    apply_review.add_argument("--dataset", type=Path, required=True)
+    apply_review.add_argument("--crops", type=Path, default=Path("data/old_yolo_review/crops/9_lvwoniu_review"))
+    apply_review.add_argument("--class-id", type=int, default=9)
+    apply_review.set_defaults(func=apply_crop_review)
     fitting = sub.add_parser("train", help="train the current Ultralytics YOLO")
     fitting.add_argument("--dataset", type=Path, required=True)
     fitting.add_argument("--model", default="yolo26n.pt")

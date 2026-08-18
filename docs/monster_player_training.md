@@ -37,6 +37,16 @@ python tools/yolo_data.py review-old `
 
 该命令会先自动删除所有非类别 9 标签，然后从每个检测框生成单独的裁剪图并逐张显示。按 `k`/`n`/空格表示正确并保留，按 `d` 表示错误：程序会删除该裁剪图，并同步删除原标签中的对应框；`p` 上一张，`q` 退出。需要补画漏检框时，再使用 `annotate` 工具处理原图。
 
+也可以完全不用审核窗口：直接在 `data\old_yolo_review\crops\9_lvwoniu_review` 中删除你认为错误的 `.jpg`，保留正确图片，然后执行：
+
+```powershell
+python tools/yolo_data.py apply-crop-review `
+  --dataset data\old_yolo_dataset `
+  --crops data\old_yolo_review\crops\9_lvwoniu_review
+```
+
+程序会根据 `manifest.json` 将被删除的裁剪图对应检测框从 YOLO 标签中删除，原始游戏图片不会删除。
+
 ## 2. 标注玩家
 
 ```powershell
