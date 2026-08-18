@@ -47,11 +47,24 @@ python tools/yolo_data.py apply-crop-review `
 
 程序会递归遍历所有类别文件夹，根据各目录中的 `manifest.json` 将被删除的裁剪图对应检测框从 YOLO 标签中删除，原始游戏图片不会删除。也可以增加 `--class-id 9` 只处理一个类别。
 
+审核完成后，先将类别转换为“玩家 0、怪物 1–17”：
+
+```powershell
+python tools/yolo_data.py prepare-player-dataset --dataset data\old_yolo_dataset
+```
+
 ## 2. 标注玩家
 
 ```powershell
 python tools/yolo_data.py annotate --dataset datasets\monster_player --split train
 python tools/yolo_data.py annotate --dataset datasets\monster_player --split val
+```
+
+准备完成后，玩家类别为 `0: player`，旧模型真实怪物为 `1–17`：
+
+```powershell
+python tools/yolo_data.py annotate --dataset data\old_yolo_dataset --split train
+python tools/yolo_data.py annotate --dataset data\old_yolo_dataset --split val
 ```
 
 在窗口中左键拖动新增玩家框，右键点击删除框，`s` 保存，`n`/空格下一张，`p` 上一张，`c` 清除当前图片的所有玩家框，`q` 退出。绿色是旧模型生成的怪物框，橙色是人工添加的玩家框。

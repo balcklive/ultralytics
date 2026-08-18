@@ -18,6 +18,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import yaml
 
 CLASS_NAMES = ("monster", "player")
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
@@ -360,12 +361,53 @@ def apply_crop_review(args: argparse.Namespace) -> None:
     print(f"Applied crop review: kept {kept} boxes, removed {removed} boxes")
 
 
+def prepare_player_dataset(args: argparse.Namespace) -> None:
+    """Remove the legacy background class and reserve class 0 for players."""
+    dataset = Path(args.dataset)
+    config_path = dataset / "dataset.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    names = config.get("names", {})
+    names = {int(cls): name for cls, name in names.items()} if isinstance(names, dict) else dict(enumerate(names))
+    monster_names = {cls: name for cls, name in names.items() if cls != 0 and name not in ("__background__", "player")}
+    new_names = {0: "player", **monster_names}
+    removed_background = 0
+    for split in ("train", "val"):
+        label_dir = dataset / "labels" / split
+        for label_path in label_dir.glob("*.txt"):
+            image_candidates = list((dataset / "images" / split).glob(f"{label_path.stem}.*"))
+            if not image_candidates:
+                continue
+            image = cv2.imread(str(image_candidates[0]))
+            if image is None:
+                continue
+            height, width = image.shape[:2]
+            labels = read_labels(label_path, width, height)
+            filtered = [label for label in labels if label[0] != 0]
+            removed_background += len(labels) - len(filtered)
+            write_labels(label_path, filtered, width, height)
+    config["names"] = {cls: name for cls, name in sorted(new_names.items())}
+    config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    print(
+        f"Prepared player dataset: class 0=player, monster classes={len(monster_names)}, removed background boxes={removed_background}"
+    )
+
+
 class Annotator:
     """Small OpenCV annotator for adding player boxes to generated labels."""
 
-    def __init__(self, dataset: Path, split: str) -> None:
+    def __init__(self, dataset: Path, split: str, player_class_id: int | None = None) -> None:
         self.images = image_files(dataset / "images" / split)
         self.labels_dir = dataset / "labels" / split
+        config_path = dataset / "dataset.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+        names = config.get("names", {})
+        self.class_names = (
+            {int(cls): name for cls, name in names.items()} if isinstance(names, dict) else dict(enumerate(names))
+        )
+        self.player_class_id = player_class_id if player_class_id is not None else 0
+        self.class_names[self.player_class_id] = "player"
+        config["names"] = {cls: name for cls, name in sorted(self.class_names.items())}
+        config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
         self.index = 0
         self.labels: list[tuple[int, tuple[int, int, int, int]]] = []
         self.image: np.ndarray | None = None
@@ -392,12 +434,20 @@ class Annotator:
         assert self.image is not None
         canvas = self.image.copy()
         for cls, (x1, y1, x2, y2) in self.labels:
-            color = (0, 220, 0) if cls == 0 else (0, 120, 255)
+            color = (0, 120, 255) if cls == self.player_class_id else (0, 220, 0)
             cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(canvas, CLASS_NAMES[cls], (x1, max(18, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            cv2.putText(
+                canvas,
+                self.class_names.get(cls, str(cls)),
+                (x1, max(18, y1 - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+            )
         cv2.putText(
             canvas,
-            f"{self.index + 1}/{len(self.images)}  monsters={sum(c == 0 for c, _ in self.labels)}  players={sum(c == 1 for c, _ in self.labels)}",
+            f"{self.index + 1}/{len(self.images)}  boxes={len(self.labels)}  players={sum(c == self.player_class_id for c, _ in self.labels)}",
             (10, 25),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.65,
@@ -414,7 +464,7 @@ class Annotator:
             x1, y1 = self.start
             box = (min(x1, x), min(y1, y), max(x1, x), max(y1, y))
             if box[2] - box[0] >= 3 and box[3] - box[1] >= 3:
-                self.labels.append((1, box))
+                self.labels.append((self.player_class_id, box))
             self.start = None
         elif event == cv2.EVENT_RBUTTONDOWN:
             for i, (_cls, (x1, y1, x2, y2)) in reversed(list(enumerate(self.labels))):
@@ -444,7 +494,7 @@ class Annotator:
                     self.index = max(self.index - 1, 0)
                     break
                 elif key == ord("c"):
-                    self.labels = [(cls, box) for cls, box in self.labels if cls != 1]
+                    self.labels = [(cls, box) for cls, box in self.labels if cls != self.player_class_id]
                 elif key in (ord("q"), 27):
                     self.save()
                     cv2.destroyAllWindows()
@@ -485,7 +535,8 @@ def main() -> None:
     annotate = sub.add_parser("annotate", help="draw player boxes on generated images")
     annotate.add_argument("--dataset", type=Path, required=True)
     annotate.add_argument("--split", choices=("train", "val"), default="train")
-    annotate.set_defaults(func=lambda a: Annotator(a.dataset, a.split).run())
+    annotate.add_argument("--player-class-id", type=int, default=None, help="defaults to class 0")
+    annotate.set_defaults(func=lambda a: Annotator(a.dataset, a.split, a.player_class_id).run())
     review = sub.add_parser("review-old", help="keep and review one legacy model class")
     review.add_argument("--dataset", type=Path, required=True)
     review.add_argument("--class-id", type=int, default=9)
@@ -498,6 +549,9 @@ def main() -> None:
         "--class-id", type=int, default=None, help="only apply one class; omit to apply every class"
     )
     apply_review.set_defaults(func=apply_crop_review)
+    prepare = sub.add_parser("prepare-player-dataset", help="reserve class 0 for players and remove background labels")
+    prepare.add_argument("--dataset", type=Path, required=True)
+    prepare.set_defaults(func=prepare_player_dataset)
     fitting = sub.add_parser("train", help="train the current Ultralytics YOLO")
     fitting.add_argument("--dataset", type=Path, required=True)
     fitting.add_argument("--model", default="yolo26n.pt")
