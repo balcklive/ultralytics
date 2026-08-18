@@ -145,18 +145,18 @@ def save_review_images(
 
 
 class OldLabelReviewer:
-    """Review one legacy class and discard all other legacy classes."""
+    """Review legacy detection crops and discard rejected boxes."""
 
     def __init__(self, dataset: Path, split: str, class_id: int) -> None:
         splits = ("train", "val") if split == "all" else (split,)
         self.images = [image for current in splits for image in image_files(dataset / "images" / current)]
+        self.dataset = dataset
         self.labels_root = dataset / "labels"
         self.class_id = class_id
+        self.crop_dir = dataset.parent / "old_yolo_review" / "crops" / f"{class_id}_lvwoniu_review"
+        self.items: list[tuple[Path, Path, tuple[int, int, int, int]]] = []
         self.index = 0
-        self.labels: list[tuple[int, tuple[int, int, int, int]]] = []
-        self.image: np.ndarray | None = None
-        self.start: tuple[int, int] | None = None
-        self.window = f"Review class {class_id} | drag=add, right-click=delete, s=save, n/p=next, q=quit"
+        self.window = f"Review crops class {class_id} | k=keep, d=delete, n/space=next, q=quit"
 
     def label_path(self) -> Path:
         """Return the label path matching the current image."""
@@ -182,87 +182,98 @@ class OldLabelReviewer:
                 cleaned += 1
         print(f"Cleaned {cleaned} label files; kept class {self.class_id} only")
 
-    def load(self) -> None:
-        """Load the current image and its selected-class labels."""
-        self.image = cv2.imread(str(self.images[self.index]))
-        if self.image is None:
-            raise RuntimeError(f"Cannot read {self.images[self.index]}")
-        height, width = self.image.shape[:2]
-        self.labels = read_labels(self.label_path(), width, height)
+    def prepare_crops(self) -> None:
+        """Create one review crop for every selected-class label."""
+        self.crop_dir.mkdir(parents=True, exist_ok=True)
+        self.items = []
+        for image_path in self.images:
+            label_path = self.labels_root / image_path.parent.name / f"{image_path.stem}.txt"
+            frame = cv2.imread(str(image_path))
+            if frame is None:
+                continue
+            height, width = frame.shape[:2]
+            for box_index, (_class_id, box) in enumerate(read_labels(label_path, width, height)):
+                x1, y1, x2, y2 = box
+                crop = frame[max(0, y1) : min(height, y2), max(0, x1) : min(width, x2)]
+                if crop.size == 0:
+                    continue
+                crop_path = self.crop_dir / f"{image_path.parent.name}_{image_path.stem}_{box_index:04d}.jpg"
+                cv2.imwrite(str(crop_path), crop)
+                self.items.append((crop_path, label_path, box))
+        print(f"Review crops created: {len(self.items)}")
 
-    def save(self) -> None:
-        """Save the selected-class labels."""
-        assert self.image is not None
-        height, width = self.image.shape[:2]
-        write_labels(self.label_path(), self.labels, width, height)
-
-    def draw(self) -> np.ndarray:
-        """Render the current image and selected-class boxes."""
-        assert self.image is not None
-        canvas = self.image.copy()
-        for _class_id, (x1, y1, x2, y2) in self.labels:
-            cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 220, 0), 2)
-            cv2.putText(
-                canvas,
-                f"{self.class_id}: lvwoniu",
-                (x1, max(18, y1 - 5)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 220, 0),
-                2,
-            )
-        cv2.putText(
-            canvas,
-            f"{self.index + 1}/{len(self.images)}  boxes={len(self.labels)}",
-            (10, 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
-            (255, 255, 255),
-            2,
-        )
-        return canvas
-
-    def mouse(self, event: int, x: int, y: int, _flags: int, _param: object) -> None:
-        """Add a class box with left drag or delete one with right click."""
-        if event == cv2.EVENT_LBUTTONDOWN:
-            self.start = (x, y)
-        elif event == cv2.EVENT_LBUTTONUP and self.start:
-            x1, y1 = self.start
-            box = (min(x1, x), min(y1, y), max(x1, x), max(y1, y))
-            if box[2] - box[0] >= 3 and box[3] - box[1] >= 3:
-                self.labels.append((self.class_id, box))
-            self.start = None
-        elif event == cv2.EVENT_RBUTTONDOWN:
-            for index, (_class_id, (x1, y1, x2, y2)) in reversed(list(enumerate(self.labels))):
-                if x1 <= x <= x2 and y1 <= y <= y2:
-                    self.labels.pop(index)
-                    break
+    def remove_current_label(self) -> None:
+        """Remove the current crop's matching box from its source label file."""
+        crop_path, label_path, box = self.items[self.index]
+        source_candidates = [
+            image
+            for image in self.images
+            if image.parent.name == label_path.parent.name and image.stem == label_path.stem
+        ]
+        if not source_candidates:
+            return
+        source = cv2.imread(str(source_candidates[0]))
+        if source is None:
+            return
+        height, width = source.shape[:2]
+        labels = read_labels(label_path, width, height)
+        for label_index, label in enumerate(labels):
+            if label[0] == self.class_id and label[1] == box:
+                labels.pop(label_index)
+                break
+        write_labels(label_path, labels, width, height)
+        crop_path.unlink(missing_ok=True)
+        print(f"deleted {crop_path.name}")
 
     def run(self) -> None:
         """Clean labels and run the review loop."""
         if not self.images:
             raise SystemExit("No images found in the selected split")
         self.clean_labels()
+        self.prepare_crops()
+        if not self.items:
+            print("No selected-class crops to review")
+            return
         cv2.namedWindow(self.window)
-        cv2.setMouseCallback(self.window, self.mouse)
-        self.load()
         while True:
-            cv2.imshow(self.window, self.draw())
+            crop_path, _label_path, _box = self.items[self.index]
+            crop = cv2.imread(str(crop_path))
+            if crop is None:
+                self.items.pop(self.index)
+                if not self.items:
+                    break
+                self.index = min(self.index, len(self.items) - 1)
+                continue
+            max_size = max(crop.shape[:2])
+            if max_size > 900:
+                scale = 900 / max_size
+                crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            canvas = cv2.copyMakeBorder(crop, 45, 0, 0, 0, cv2.BORDER_CONSTANT, value=(35, 35, 35))
+            cv2.putText(
+                canvas,
+                f"{self.index + 1}/{len(self.items)}  {crop_path.name}",
+                (10, 28),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (255, 255, 255),
+                2,
+            )
+            cv2.imshow(self.window, canvas)
             key = cv2.waitKey(30) & 0xFF
-            if key == ord("s"):
-                self.save()
-            elif key in (ord("n"), 32):
-                self.save()
-                self.index = min(self.index + 1, len(self.images) - 1)
-                self.load()
+            if key == ord("d"):
+                self.remove_current_label()
+                self.items.pop(self.index)
+                if not self.items:
+                    break
+                self.index = min(self.index, len(self.items) - 1)
+            elif key in (ord("k"), ord("n"), 32):
+                self.index = min(self.index + 1, len(self.items) - 1)
             elif key == ord("p"):
-                self.save()
                 self.index = max(self.index - 1, 0)
-                self.load()
             elif key in (ord("q"), 27):
-                self.save()
                 cv2.destroyAllWindows()
                 return
+        cv2.destroyAllWindows()
 
 
 class Annotator:
