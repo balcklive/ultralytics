@@ -67,7 +67,7 @@ python tools/yolo_data.py annotate --dataset data\old_yolo_dataset --split train
 python tools/yolo_data.py annotate --dataset data\old_yolo_dataset --split val
 ```
 
-在窗口中左键拖动新增玩家框，右键点击删除框，`s` 保存，`n`/空格下一张，`p` 上一张，`c` 清除当前图片的所有玩家框，`q` 退出。绿色是旧模型生成的怪物框，橙色是人工添加的玩家框。
+标注器支持完整框编辑：`[`/`]` 切换当前类别；左键拖动空白处新增当前类别框；拖动已有框的四角调整尺寸；右键点击删除任意框；`c` 清除当前类别；`s` 保存，`n`/空格下一张，`p` 上一张，`q` 退出。绿色是怪物框，橙色是玩家框。
 
 ## 3. 训练新版模型
 

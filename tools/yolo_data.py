@@ -393,7 +393,7 @@ def prepare_player_dataset(args: argparse.Namespace) -> None:
 
 
 class Annotator:
-    """Small OpenCV annotator for adding player boxes to generated labels."""
+    """OpenCV annotator for adding, deleting, and resizing any dataset class."""
 
     def __init__(self, dataset: Path, split: str, player_class_id: int | None = None) -> None:
         self.images = image_files(dataset / "images" / split)
@@ -412,7 +412,10 @@ class Annotator:
         self.labels: list[tuple[int, tuple[int, int, int, int]]] = []
         self.image: np.ndarray | None = None
         self.start: tuple[int, int] | None = None
-        self.window = "YOLO annotator | drag=player, right-click=delete, s=save, n/p=next, q=quit"
+        self.current_class_id = self.player_class_id
+        self.drag_index: int | None = None
+        self.drag_corner: int | None = None
+        self.window = "YOLO annotator | [/] class, drag=add/resize, right-click=delete, s=save, n/p=next, q=quit"
 
     def load(self) -> None:
         """Load the current image and labels."""
@@ -436,6 +439,8 @@ class Annotator:
         for cls, (x1, y1, x2, y2) in self.labels:
             color = (0, 120, 255) if cls == self.player_class_id else (0, 220, 0)
             cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
+            for corner_x, corner_y in ((x1, y1), (x2, y1), (x1, y2), (x2, y2)):
+                cv2.circle(canvas, (corner_x, corner_y), 5, color, -1)
             cv2.putText(
                 canvas,
                 self.class_names.get(cls, str(cls)),
@@ -447,7 +452,7 @@ class Annotator:
             )
         cv2.putText(
             canvas,
-            f"{self.index + 1}/{len(self.images)}  boxes={len(self.labels)}  players={sum(c == self.player_class_id for c, _ in self.labels)}",
+            f"{self.index + 1}/{len(self.images)}  current={self.current_class_id}:{self.class_names.get(self.current_class_id, '?')}  boxes={len(self.labels)}",
             (10, 25),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.65,
@@ -457,15 +462,35 @@ class Annotator:
         return canvas
 
     def mouse(self, event: int, x: int, y: int, _flags: int, _param: object) -> None:
-        """Handle drawing and deletion."""
+        """Handle adding, resizing, and deleting boxes."""
         if event == cv2.EVENT_LBUTTONDOWN:
+            self.drag_index = None
+            self.drag_corner = None
+            for i, (_cls, (x1, y1, x2, y2)) in reversed(list(enumerate(self.labels))):
+                corners = ((x1, y1), (x2, y1), (x1, y2), (x2, y2))
+                for corner, (corner_x, corner_y) in enumerate(corners):
+                    if abs(x - corner_x) <= 10 and abs(y - corner_y) <= 10:
+                        self.drag_index = i
+                        self.drag_corner = corner
+                        return
             self.start = (x, y)
-        elif event == cv2.EVENT_LBUTTONUP and self.start:
-            x1, y1 = self.start
-            box = (min(x1, x), min(y1, y), max(x1, x), max(y1, y))
-            if box[2] - box[0] >= 3 and box[3] - box[1] >= 3:
-                self.labels.append((self.player_class_id, box))
-            self.start = None
+        elif event == cv2.EVENT_LBUTTONUP:
+            if self.drag_index is not None and self.drag_corner is not None:
+                cls, (x1, y1, x2, y2) = self.labels[self.drag_index]
+                points = [(x1, y1), (x2, y1), (x1, y2), (x2, y2)]
+                points[self.drag_corner] = (x, y)
+                xs, ys = zip(*points)
+                box = (min(xs), min(ys), max(xs), max(ys))
+                if box[2] - box[0] >= 3 and box[3] - box[1] >= 3:
+                    self.labels[self.drag_index] = (cls, box)
+                self.drag_index = None
+                self.drag_corner = None
+            elif self.start:
+                x1, y1 = self.start
+                box = (min(x1, x), min(y1, y), max(x1, x), max(y1, y))
+                if box[2] - box[0] >= 3 and box[3] - box[1] >= 3:
+                    self.labels.append((self.current_class_id, box))
+                self.start = None
         elif event == cv2.EVENT_RBUTTONDOWN:
             for i, (_cls, (x1, y1, x2, y2)) in reversed(list(enumerate(self.labels))):
                 if x1 <= x <= x2 and y1 <= y <= y2:
@@ -497,7 +522,12 @@ class Annotator:
                     self.index = max(self.index - 1, 0)
                     break
                 elif key == ord("c"):
-                    self.labels = [(cls, box) for cls, box in self.labels if cls != self.player_class_id]
+                    self.labels = [(cls, box) for cls, box in self.labels if cls != self.current_class_id]
+                elif key in (ord("["), ord("]")):
+                    class_ids = sorted(self.class_names)
+                    current_index = class_ids.index(self.current_class_id) if self.current_class_id in class_ids else 0
+                    step = -1 if key == ord("[") else 1
+                    self.current_class_id = class_ids[(current_index + step) % len(class_ids)]
                 elif key in (ord("q"), 27):
                     self.save()
                     cv2.destroyAllWindows()
