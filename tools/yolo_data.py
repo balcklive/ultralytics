@@ -125,7 +125,7 @@ def auto_label(args: argparse.Namespace) -> None:
             )
         print(f"[{split}] {source.name}: {len(labels)} detection(s)")
     (output / "dataset.yaml").write_text(
-        "path: .\ntrain: images/train\nval: images/val\nnames:\n"
+        f"path: {output.resolve().as_posix()}\ntrain: images/train\nval: images/val\nnames:\n"
         + "".join(f"  {cls}: {name}\n" for cls, name in sorted(model_names.items())),
         encoding="utf-8",
     )
@@ -368,6 +368,7 @@ def prepare_player_dataset(args: argparse.Namespace) -> None:
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     names = config.get("names", {})
     names = {int(cls): name for cls, name in names.items()} if isinstance(names, dict) else dict(enumerate(names))
+    already_prepared = names.get(0) == "player"
     monster_names = {cls: name for cls, name in names.items() if cls != 0 and name not in ("__background__", "player")}
     new_names = {0: "player", **monster_names}
     removed_background = 0
@@ -382,10 +383,11 @@ def prepare_player_dataset(args: argparse.Namespace) -> None:
                 continue
             height, width = image.shape[:2]
             labels = read_labels(label_path, width, height)
-            filtered = [label for label in labels if label[0] != 0]
+            filtered = labels if already_prepared else [label for label in labels if label[0] != 0]
             removed_background += len(labels) - len(filtered)
             write_labels(label_path, filtered, width, height)
     config["names"] = {cls: name for cls, name in sorted(new_names.items())}
+    config["path"] = dataset.resolve().as_posix()
     config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
     print(
         f"Prepared player dataset: class 0=player, monster classes={len(monster_names)}, removed background boxes={removed_background}"
