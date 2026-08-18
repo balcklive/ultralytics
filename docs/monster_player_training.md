@@ -27,6 +27,16 @@ python tools/yolo_data.py auto-label `
 
 输出数据集会按固定随机种子拆分为 `train` 和 `val`，原图片会复制到数据集目录；标签是标准 YOLO 格式，类别 ID 与旧模型完全一致。复核目录包含带检测框的完整图片，以及按类别分目录保存的检测框裁剪图。
 
+如果某个地图只有 `9: lvwoniu`，可以快速清理其他错误类别并审核类别 9：
+
+```powershell
+python tools/yolo_data.py review-old `
+  --dataset data\old_yolo_dataset `
+  --class-id 9
+```
+
+该命令会先自动删除所有非类别 9 标签，然后打开审核窗口。右键删除误检框，左键拖动补画漏检框，`s` 保存，`n`/空格下一张，`p` 上一张，`q` 退出。
+
 ## 2. 标注玩家
 
 ```powershell

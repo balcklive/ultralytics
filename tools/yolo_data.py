@@ -144,6 +144,127 @@ def save_review_images(
     cv2.imwrite(str(review_output / image_name), annotated)
 
 
+class OldLabelReviewer:
+    """Review one legacy class and discard all other legacy classes."""
+
+    def __init__(self, dataset: Path, split: str, class_id: int) -> None:
+        splits = ("train", "val") if split == "all" else (split,)
+        self.images = [image for current in splits for image in image_files(dataset / "images" / current)]
+        self.labels_root = dataset / "labels"
+        self.class_id = class_id
+        self.index = 0
+        self.labels: list[tuple[int, tuple[int, int, int, int]]] = []
+        self.image: np.ndarray | None = None
+        self.start: tuple[int, int] | None = None
+        self.window = f"Review class {class_id} | drag=add, right-click=delete, s=save, n/p=next, q=quit"
+
+    def label_path(self) -> Path:
+        """Return the label path matching the current image."""
+        split = self.images[self.index].parent.name
+        return self.labels_root / split / f"{self.images[self.index].stem}.txt"
+
+    def clean_labels(self) -> None:
+        """Remove every class except the selected legacy class before review."""
+        cleaned = 0
+        for split in ("train", "val"):
+            for path in (self.labels_root / split).glob("*.txt"):
+                image = next(
+                    (item for item in self.images if item.parent.name == split and item.stem == path.stem), None
+                )
+                if image is None:
+                    continue
+                frame = cv2.imread(str(image))
+                if frame is None:
+                    continue
+                height, width = frame.shape[:2]
+                labels = [label for label in read_labels(path, width, height) if label[0] == self.class_id]
+                write_labels(path, labels, width, height)
+                cleaned += 1
+        print(f"Cleaned {cleaned} label files; kept class {self.class_id} only")
+
+    def load(self) -> None:
+        """Load the current image and its selected-class labels."""
+        self.image = cv2.imread(str(self.images[self.index]))
+        if self.image is None:
+            raise RuntimeError(f"Cannot read {self.images[self.index]}")
+        height, width = self.image.shape[:2]
+        self.labels = read_labels(self.label_path(), width, height)
+
+    def save(self) -> None:
+        """Save the selected-class labels."""
+        assert self.image is not None
+        height, width = self.image.shape[:2]
+        write_labels(self.label_path(), self.labels, width, height)
+
+    def draw(self) -> np.ndarray:
+        """Render the current image and selected-class boxes."""
+        assert self.image is not None
+        canvas = self.image.copy()
+        for _class_id, (x1, y1, x2, y2) in self.labels:
+            cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 220, 0), 2)
+            cv2.putText(
+                canvas,
+                f"{self.class_id}: lvwoniu",
+                (x1, max(18, y1 - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 220, 0),
+                2,
+            )
+        cv2.putText(
+            canvas,
+            f"{self.index + 1}/{len(self.images)}  boxes={len(self.labels)}",
+            (10, 25),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255, 255, 255),
+            2,
+        )
+        return canvas
+
+    def mouse(self, event: int, x: int, y: int, _flags: int, _param: object) -> None:
+        """Add a class box with left drag or delete one with right click."""
+        if event == cv2.EVENT_LBUTTONDOWN:
+            self.start = (x, y)
+        elif event == cv2.EVENT_LBUTTONUP and self.start:
+            x1, y1 = self.start
+            box = (min(x1, x), min(y1, y), max(x1, x), max(y1, y))
+            if box[2] - box[0] >= 3 and box[3] - box[1] >= 3:
+                self.labels.append((self.class_id, box))
+            self.start = None
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            for index, (_class_id, (x1, y1, x2, y2)) in reversed(list(enumerate(self.labels))):
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    self.labels.pop(index)
+                    break
+
+    def run(self) -> None:
+        """Clean labels and run the review loop."""
+        if not self.images:
+            raise SystemExit("No images found in the selected split")
+        self.clean_labels()
+        cv2.namedWindow(self.window)
+        cv2.setMouseCallback(self.window, self.mouse)
+        self.load()
+        while True:
+            cv2.imshow(self.window, self.draw())
+            key = cv2.waitKey(30) & 0xFF
+            if key == ord("s"):
+                self.save()
+            elif key in (ord("n"), 32):
+                self.save()
+                self.index = min(self.index + 1, len(self.images) - 1)
+                self.load()
+            elif key == ord("p"):
+                self.save()
+                self.index = max(self.index - 1, 0)
+                self.load()
+            elif key in (ord("q"), 27):
+                self.save()
+                cv2.destroyAllWindows()
+                return
+
+
 class Annotator:
     """Small OpenCV annotator for adding player boxes to generated labels."""
 
@@ -270,6 +391,11 @@ def main() -> None:
     annotate.add_argument("--dataset", type=Path, required=True)
     annotate.add_argument("--split", choices=("train", "val"), default="train")
     annotate.set_defaults(func=lambda a: Annotator(a.dataset, a.split).run())
+    review = sub.add_parser("review-old", help="keep and review one legacy model class")
+    review.add_argument("--dataset", type=Path, required=True)
+    review.add_argument("--class-id", type=int, default=9)
+    review.add_argument("--split", choices=("all", "train", "val"), default="all")
+    review.set_defaults(func=lambda a: OldLabelReviewer(a.dataset, a.split, a.class_id).run())
     fitting = sub.add_parser("train", help="train the current Ultralytics YOLO")
     fitting.add_argument("--dataset", type=Path, required=True)
     fitting.add_argument("--model", default="yolo26n.pt")
