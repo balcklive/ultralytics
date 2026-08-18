@@ -1,6 +1,6 @@
 # 怪物与玩家检测训练
 
-本仓库提供 `tools/yolo_data.py`，用于把 `maoxiandao` 的旧版怪物模型转成新版 YOLO 的两类数据集。
+本仓库提供 `tools/yolo_data.py`，用于复用 `maoxiandao` 的旧版怪物模型生成新版 YOLO 数据集。旧模型的类别 ID 和类别名称会原样保留，不会把所有怪物合并成一个类别。
 
 ## 环境
 
@@ -19,12 +19,13 @@ uv sync --extra dev --extra solutions
 
 ```powershell
 python tools/yolo_data.py auto-label `
-  --images D:\path\to\frames `
+  --images data\images `
   --old-model ..\maoxiandao\bot\resource\bundles\models\best.pt `
-  --output datasets\monster_player
+  --output data\old_yolo_dataset `
+  --review-output data\old_yolo_review
 ```
 
-旧模型识别到的所有类别都会统一写成类别 `0: monster`。输出数据集会按固定随机种子拆分为 `train` 和 `val`，原图片会复制到数据集目录。
+输出数据集会按固定随机种子拆分为 `train` 和 `val`，原图片会复制到数据集目录；标签是标准 YOLO 格式，类别 ID 与旧模型完全一致。复核目录包含带检测框的完整图片，以及按类别分目录保存的检测框裁剪图。
 
 ## 2. 标注玩家
 

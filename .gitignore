@@ -211,3 +211,7 @@ results.csv
 fuzz-sources/
 fuzz-datasets/
 fuzz-models/
+
+# Local training data and model weights
+/data/
+/models/

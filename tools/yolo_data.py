@@ -2,7 +2,7 @@
 r"""Prepare and train a two-class YOLO dataset from an older monster model.
 
 Examples:
-    python tools/yolo_data.py auto-label --images frames --old-model ..\maoxiandao\bot\resource\bundles\models\best.pt --output datasets\monster_player
+    python tools/yolo_data.py auto-label --images data/images --old-model ..\maoxiandao\bot\resource\bundles\models\best.pt --output data/old_yolo_dataset --review-output data/old_yolo_review
     python tools/yolo_data.py annotate --dataset datasets\monster_player --split train
     python tools/yolo_data.py train --dataset datasets\monster_player --model yolo26n.pt
 """
@@ -64,7 +64,7 @@ def write_labels(path: Path, labels: list[tuple[int, tuple[int, int, int, int]]]
 
 
 def auto_label(args: argparse.Namespace) -> None:
-    """Run the old model and build a two-class dataset."""
+    """Run the old model and build a dataset preserving its original classes."""
     from ultralytics import YOLO
 
     sources = image_files(Path(args.images))
@@ -74,6 +74,10 @@ def auto_label(args: argparse.Namespace) -> None:
     if output.exists() and any(output.iterdir()) and not args.overwrite:
         raise SystemExit(f"Output is not empty: {output}. Use --overwrite to rebuild it.")
     model = YOLO(str(args.old_model))
+    model_names = model.names if isinstance(model.names, dict) else dict(enumerate(model.names))
+    review_output = Path(args.review_output) if args.review_output else None
+    if review_output and review_output.exists() and any(review_output.iterdir()) and not args.overwrite:
+        raise SystemExit(f"Review output is not empty: {review_output}. Use --overwrite to rebuild it.")
     rng = random.Random(args.seed)
     rng.shuffle(sources)
     val_count = round(len(sources) * args.val_fraction)
@@ -90,17 +94,54 @@ def auto_label(args: argparse.Namespace) -> None:
         height, width = image.shape[:2]
         result = model.predict(source=image, conf=args.conf, imgsz=args.imgsz, verbose=False)[0]
         labels = []
+        detections = []
         if result.boxes is not None:
-            for box in result.boxes.xyxy.cpu().numpy().tolist():
-                labels.append((0, tuple(map(round, box))))
+            boxes = result.boxes.xyxy.cpu().numpy().tolist()
+            classes = result.boxes.cls.cpu().numpy().astype(int).tolist()
+            confidences = result.boxes.conf.cpu().numpy().tolist()
+            for box, cls, confidence in zip(boxes, classes, confidences):
+                if cls not in model_names:
+                    print(f"[warning] unknown old-model class {cls} in {source.name}; skipped")
+                    continue
+                pixel_box = tuple(map(round, box))
+                labels.append((cls, pixel_box))
+                detections.append((cls, pixel_box, confidence))
         shutil.copy2(source, target_image)
         write_labels(target_label, labels, width, height)
-        print(f"[{split}] {source.name}: {len(labels)} monster(s)")
+        if review_output:
+            save_review_images(review_output, source.name, image, detections, model_names)
+        print(f"[{split}] {source.name}: {len(labels)} detection(s)")
     (output / "dataset.yaml").write_text(
-        "path: .\ntrain: images/train\nval: images/val\nnames:\n  0: monster\n  1: player\n",
+        "path: .\ntrain: images/train\nval: images/val\nnames:\n"
+        + "".join(f"  {cls}: {name}\n" for cls, name in sorted(model_names.items())),
         encoding="utf-8",
     )
-    print(f"Dataset created at {output.resolve()}\nNext: python tools/yolo_data.py annotate --dataset {output}")
+    review_message = f"\nReview images: {review_output.resolve()}" if review_output else ""
+    print(f"Dataset created at {output.resolve()}{review_message}")
+
+
+def save_review_images(
+    review_output: Path,
+    image_name: str,
+    image: np.ndarray,
+    detections: list[tuple[int, tuple[int, int, int, int], float]],
+    names: dict[int, str],
+) -> None:
+    """Save an annotated source image and one crop per old-model detection."""
+    annotated = image.copy()
+    crop_dir = review_output / "crops"
+    for index, (cls, (x1, y1, x2, y2), confidence) in enumerate(detections):
+        color = (0, 220, 0)
+        label = f"{cls}:{names[cls]} {confidence:.2f}"
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(annotated, label, (x1, max(18, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+        crop = image[max(0, y1) : min(image.shape[0], y2), max(0, x1) : min(image.shape[1], x2)]
+        if crop.size:
+            class_dir = crop_dir / f"{cls}_{names[cls]}"
+            class_dir.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(class_dir / f"{Path(image_name).stem}_{index:03d}.jpg"), crop)
+    review_output.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(review_output / image_name), annotated)
 
 
 class Annotator:
@@ -215,9 +256,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(required=True)
     auto = sub.add_parser("auto-label", help="use an old YOLO model to label monsters")
-    auto.add_argument("--images", type=Path, required=True)
-    auto.add_argument("--old-model", type=Path, required=True)
-    auto.add_argument("--output", type=Path, required=True)
+    auto.add_argument("--images", type=Path, default=Path("data/images"))
+    auto.add_argument("--old-model", type=Path, default=Path(r"..\maoxiandao\bot\resource\bundles\models\best.pt"))
+    auto.add_argument("--output", type=Path, default=Path("data/old_yolo_dataset"))
+    auto.add_argument("--review-output", type=Path, default=Path("data/old_yolo_review"))
     auto.add_argument("--conf", type=float, default=0.25)
     auto.add_argument("--imgsz", type=int, default=640)
     auto.add_argument("--val-fraction", type=float, default=0.2)
