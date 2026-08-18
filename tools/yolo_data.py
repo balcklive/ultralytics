@@ -487,7 +487,10 @@ class Annotator:
                     self.save()
                 elif key in (ord("n"), 32):
                     self.save()
-                    self.index = min(self.index + 1, len(self.images) - 1)
+                    if self.index >= len(self.images) - 1:
+                        cv2.destroyAllWindows()
+                        return
+                    self.index += 1
                     break
                 elif key == ord("p"):
                     self.save()
