@@ -13,6 +13,7 @@ import argparse
 import json
 import random
 import shutil
+from collections import Counter
 from pathlib import Path
 
 import cv2
@@ -83,6 +84,7 @@ def auto_label(args: argparse.Namespace) -> None:
     rng.shuffle(sources)
     val_count = round(len(sources) * args.val_fraction)
     val_paths = set(sources[:val_count])
+    review_manifest = []
     for source in sources:
         split = "val" if source in val_paths else "train"
         target_image = output / "images" / split / source.name
@@ -110,13 +112,26 @@ def auto_label(args: argparse.Namespace) -> None:
         shutil.copy2(source, target_image)
         write_labels(target_label, labels, width, height)
         if review_output:
-            save_review_images(review_output, source.name, image, detections, model_names)
+            review_manifest.extend(
+                save_review_images(
+                    review_output,
+                    source.name,
+                    image,
+                    detections,
+                    model_names,
+                    str(target_label.relative_to(output)),
+                )
+            )
         print(f"[{split}] {source.name}: {len(labels)} detection(s)")
     (output / "dataset.yaml").write_text(
         "path: .\ntrain: images/train\nval: images/val\nnames:\n"
         + "".join(f"  {cls}: {name}\n" for cls, name in sorted(model_names.items())),
         encoding="utf-8",
     )
+    if review_output:
+        (review_output / "crops" / "manifest.json").write_text(
+            json.dumps(review_manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     review_message = f"\nReview images: {review_output.resolve()}" if review_output else ""
     print(f"Dataset created at {output.resolve()}{review_message}")
 
@@ -127,10 +142,12 @@ def save_review_images(
     image: np.ndarray,
     detections: list[tuple[int, tuple[int, int, int, int], float]],
     names: dict[int, str],
-) -> None:
+    label_reference: str,
+) -> list[dict]:
     """Save an annotated source image and one crop per old-model detection."""
     annotated = image.copy()
     crop_dir = review_output / "crops"
+    manifest = []
     for index, (cls, (x1, y1, x2, y2), confidence) in enumerate(detections):
         color = (0, 220, 0)
         label = f"{cls}:{names[cls]} {confidence:.2f}"
@@ -140,9 +157,19 @@ def save_review_images(
         if crop.size:
             class_dir = crop_dir / f"{cls}_{names[cls]}"
             class_dir.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(class_dir / f"{Path(image_name).stem}_{index:03d}.jpg"), crop)
+            crop_name = f"{Path(image_name).stem}_{index:03d}.jpg"
+            cv2.imwrite(str(class_dir / crop_name), crop)
+            manifest.append(
+                {
+                    "crop": str(Path(class_dir.name) / crop_name),
+                    "label": label_reference,
+                    "class_id": cls,
+                    "box": [x1, y1, x2, y2],
+                }
+            )
     review_output.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(review_output / image_name), annotated)
+    return manifest
 
 
 class OldLabelReviewer:
@@ -292,17 +319,20 @@ class OldLabelReviewer:
 def apply_crop_review(args: argparse.Namespace) -> None:
     """Update labels from the crop files that remain after manual review."""
     crops = Path(args.crops)
-    manifest_path = crops / "manifest.json"
-    if not manifest_path.exists():
-        raise SystemExit(f"Missing crop manifest: {manifest_path}. Run review-old once to create it.")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    grouped: dict[str, list[dict]] = {}
-    for item in manifest:
-        if item["class_id"] == args.class_id:
-            grouped.setdefault(item["label"], []).append(item)
+    manifest_paths = (
+        [crops / "manifest.json"] if (crops / "manifest.json").exists() else sorted(crops.rglob("manifest.json"))
+    )
+    if not manifest_paths:
+        raise SystemExit(f"No crop manifest found under: {crops}. Run auto-label again to create one.")
+    grouped: dict[str, list[tuple[Path, dict]]] = {}
+    for manifest_path in manifest_paths:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for item in manifest:
+            if args.class_id is None or item["class_id"] == args.class_id:
+                grouped.setdefault(item["label"], []).append((manifest_path.parent, item))
     removed = 0
     kept = 0
-    for relative_label, items in grouped.items():
+    for relative_label, manifest_items in grouped.items():
         label_path = Path(args.dataset) / relative_label
         source_candidates = list((Path(args.dataset) / "images" / label_path.parent.name).glob(f"{label_path.stem}.*"))
         if not source_candidates:
@@ -312,13 +342,17 @@ def apply_crop_review(args: argparse.Namespace) -> None:
             continue
         height, width = source.shape[:2]
         current = read_labels(label_path, width, height)
-        accepted = [tuple(item["box"]) for item in items if (crops / item["crop"]).exists()]
-        remaining = list(current)
+        accepted = Counter(
+            (item["class_id"], tuple(item["box"]))
+            for manifest_root, item in manifest_items
+            if (manifest_root / item["crop"]).exists()
+        )
         filtered = []
-        for label in remaining:
-            if label[0] == args.class_id and label[1] in accepted:
+        for label in current:
+            key = (label[0], label[1])
+            if key in accepted and accepted[key] > 0:
                 filtered.append(label)
-                accepted.remove(label[1])
+                accepted[key] -= 1
             else:
                 removed += 1
         kept += len(filtered)
@@ -459,8 +493,10 @@ def main() -> None:
     review.set_defaults(func=lambda a: OldLabelReviewer(a.dataset, a.split, a.class_id).run())
     apply_review = sub.add_parser("apply-crop-review", help="apply manually deleted crop files to labels")
     apply_review.add_argument("--dataset", type=Path, required=True)
-    apply_review.add_argument("--crops", type=Path, default=Path("data/old_yolo_review/crops/9_lvwoniu_review"))
-    apply_review.add_argument("--class-id", type=int, default=9)
+    apply_review.add_argument("--crops", type=Path, default=Path("data/old_yolo_review/crops"))
+    apply_review.add_argument(
+        "--class-id", type=int, default=None, help="only apply one class; omit to apply every class"
+    )
     apply_review.set_defaults(func=apply_crop_review)
     fitting = sub.add_parser("train", help="train the current Ultralytics YOLO")
     fitting.add_argument("--dataset", type=Path, required=True)

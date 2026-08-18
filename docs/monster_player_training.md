@@ -42,10 +42,10 @@ python tools/yolo_data.py review-old `
 ```powershell
 python tools/yolo_data.py apply-crop-review `
   --dataset data\old_yolo_dataset `
-  --crops data\old_yolo_review\crops\9_lvwoniu_review
+  --crops data\old_yolo_review\crops
 ```
 
-程序会根据 `manifest.json` 将被删除的裁剪图对应检测框从 YOLO 标签中删除，原始游戏图片不会删除。
+程序会递归遍历所有类别文件夹，根据各目录中的 `manifest.json` 将被删除的裁剪图对应检测框从 YOLO 标签中删除，原始游戏图片不会删除。也可以增加 `--class-id 9` 只处理一个类别。
 
 ## 2. 标注玩家
 
