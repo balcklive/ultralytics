@@ -28,7 +28,10 @@ name = "ultralytics"
 dynamic = ["version"]
 description = "Ultralytics YOLO 🚀 for SOTA object detection, multi-object tracking, instance segmentation, pose estimation, classification, and oriented object detection."
 readme = "README.md"
-requires-python = ">=3.8"
+# Python 3.14 is not supported by the current PyTorch/Ultralytics dependency
+# matrix yet. Keeping the upper bound also prevents uv from resolving an
+# unsatisfiable future interpreter split during a normal `uv sync`.
+requires-python = ">=3.8,<3.14"
 license = { "text" = "AGPL-3.0" }
 keywords = ["machine-learning", "deep-learning", "computer-vision", "ML", "DL", "AI", "RT-DETR", "SAM3", "YOLO", "YOLOv3", "YOLOv5", "YOLOv8", "YOLO11", "YOLO26", "Platform", "Ultralytics"]
 authors = [
@@ -122,12 +125,12 @@ export-coreml = [
     "scikit-learn>=1.3.2; platform_system != 'Windows' and python_version <= '3.13'", # CoreML k-means quantization
 ]
 export-executorch = [
-    "executorch",
+    "executorch; platform_system != 'Windows'",
     "torch>=2.12.0,<2.13.0; platform_system == 'Linux' and platform_machine == 'aarch64'",
     "numpy<=2.3.5",
 ]
 export-deepx = [
-    "dx_com",
+    "dx_com; platform_system == 'Linux'",
     "numpy<2",
 ]
 export-litert = [  # LiteRT export, Linux x86 and macOS (litert-torch trace + ai-edge-litert/quantizer)
@@ -136,10 +139,27 @@ export-litert = [  # LiteRT export, Linux x86 and macOS (litert-torch trace + ai
     "ai-edge-quantizer>=0.6.0; (platform_system == 'Linux' and platform_machine == 'x86_64') or platform_system == 'Darwin'",
 ]
 export = [
-    "ultralytics[export-base]",
-    "ultralytics[export-tensorflow]",
-    "ultralytics[export-coreml]",
-    "ultralytics[export-litert]",
+    # Keep this aggregate extra self-contained. Self-references such as
+    # ultralytics[export-base] make uv resolve unrelated optional extras of
+    # the local project and create a false TensorFlow/DeepX NumPy conflict.
+    "onnx>=1.12.0; platform_system != 'Darwin'",
+    "onnx>=1.12.0,<1.18.0; platform_system == 'Darwin' and python_version < '3.13'",
+    "onnx>=1.20.0; platform_system == 'Darwin' and python_version >= '3.13'",
+    "onnxslim>=0.1.82",
+    "onnxruntime<1.20.0; python_version < '3.11' and (platform_machine != 'aarch64' or platform_system != 'Linux')",
+    "onnxruntime>=1.20.0; python_version >= '3.11'",
+    "nncf>=2.14.0,<4.0.0; python_version >= '3.9'",
+    "openvino>=2024.0.0",
+    "numpy<2.0.0; python_version < '3.13'",
+    "tensorflow>=2.0.0,<=2.19.0; python_version < '3.13'",
+    "tensorflow>2.19.0; python_version >= '3.13'",
+    "ydf<0.13.0; platform_machine != 'aarch64' and python_version <= '3.12'",
+    "googleapis-common-protos<1.74.0; python_version <= '3.12'",
+    "tensorstore>=0.1.63; platform_machine == 'aarch64' and python_version >= '3.9'",
+    "h5py!=3.11.0; platform_machine == 'aarch64'",
+    "litert-torch>=0.9.0; (platform_system == 'Linux' and platform_machine == 'x86_64') or platform_system == 'Darwin'",
+    "ai-edge-litert>=2.1.4; (platform_system == 'Linux' and platform_machine == 'x86_64') or platform_system == 'Darwin'",
+    "ai-edge-quantizer>=0.6.0; (platform_system == 'Linux' and platform_machine == 'x86_64') or platform_system == 'Darwin'",
     # Raspberry Pi Python 3.11 ExecuTorch inference requires the last known-good Linux ARM64 Torch 2.12 stack.
     "torch>=2.12.0,<2.13.0; platform_system == 'Linux' and platform_machine == 'aarch64' and python_version == '3.11'",
 ]
@@ -188,6 +208,12 @@ ultralytics = "ultralytics.cfg:entrypoint"
 packages = { find = { where = ["."], include = ["ultralytics", "ultralytics.*"] } }
 # Tests included below for checking Conda builds in https://github.com/conda-forge/ultralytics-feedstock
 package-data = { "ultralytics" = ["**/*.yaml", "**/*.sh", "../tests/*.py"], "ultralytics.assets" = ["*.jpg"], "ultralytics.solutions.templates" = ["*.html"]}
+
+# This worktree is the Windows training environment. Restrict uv's lock
+# resolution to the supported local platform so unrelated Linux ARM export
+# matrices cannot make `uv sync` unsatisfiable.
+[tool.uv]
+environments = ["sys_platform == 'win32' and platform_machine == 'AMD64' and python_version >= '3.8' and python_version < '3.13'"]
 
 [tool.setuptools.dynamic]
 version = { attr = "ultralytics.__version__" }
