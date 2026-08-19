@@ -1,0 +1,46 @@
+.venv\Scripts\python.exe tools\yolo_data.py auto-label --overwrite  #auto label
+
+  .venv\Scripts\python.exe tools/yolo_data.py apply-crop-review `       
+    --dataset data/old_yolo_dataset `
+    --crops data/old_yolo_review/crops
+
+
+ .venv\Scripts\python.exe tools/yolo_data.py annotate `
+    --dataset data/old_yolo_dataset `
+    --split train
+
+  验证集也标注：
+
+  .venv\Scripts\python.exe tools/yolo_data.py annotate `
+    --dataset data/old_yolo_dataset `
+    --split val
+
+模型训练
+.venv\Scripts\python.exe tools/yolo_data.py train `
+    --dataset data/old_yolo_dataset `
+    --model models/yolo26s.pt `
+    --epochs 100 `
+    --imgsz 640 `
+    --batch -1 `
+    --device cpu
+
+  .venv\Scripts\python.exe tools/predict_video.py `
+    --model weights\best.pt `
+    --source weights/test_video/tmp_jump_template_player.mp4 `
+    --output weights/test_video/player_test_pred.mp4 `
+    --device cpu `
+    --conf 0.25
+
+
+ 训练完成后验证：
+
+  .venv\Scripts\python.exe yolo val `
+    model=weights/best.pt `
+    data=data/old_yolo_dataset/dataset.yaml
+
+  预测检查：
+
+  .venv\Scripts\python.exe yolo predict `
+    model=weights/best.pt `
+    source=data/images `
+    conf=0.25
