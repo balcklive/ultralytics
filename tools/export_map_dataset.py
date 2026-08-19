@@ -73,7 +73,7 @@ def get_text(session: requests.Session, url: str, timeout: float) -> str:
     """Download a UTF-8 HTML page."""
     response = session.get(url, timeout=timeout)
     response.raise_for_status()
-    response.encoding = response.apparent_encoding or response.encoding
+    response.encoding = "utf-8"
     return response.text
 
 
