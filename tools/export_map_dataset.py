@@ -43,6 +43,7 @@ class Monster:
     """A monster marker in render-space pixels."""
 
     name: str
+    icon_url: str
     x: float
     y: float
 
@@ -133,9 +134,11 @@ def parse_map(map_id: str, html: str, page_url: str) -> MapPage | None:
         style = extract_attr(marker, "style")
         position = re.search(r"left\s*:\s*([\d.]+)%\s*;\s*top\s*:\s*([\d.]+)%", style, re.IGNORECASE)
         name = extract_attr(marker, "data-map-tooltip-name")
-        if not position or not name:
+        marker_image = re.search(r"<img\b[^>]*>", marker, re.IGNORECASE)
+        icon_url = urljoin(page_url, extract_attr(marker_image.group(0), "src")) if marker_image else ""
+        if not position or not name or not icon_url:
             continue
-        monsters.append(Monster(name=name, x=float(position.group(1)), y=float(position.group(2))))
+        monsters.append(Monster(name=name, icon_url=icon_url, x=float(position.group(1)), y=float(position.group(2))))
     if not monsters or not image_url:
         return None
     title = extract_attr(section, "aria-label") or f"map-{map_id}"
@@ -157,6 +160,29 @@ def download_image(
     path.parent.mkdir(parents=True, exist_ok=True)
     background.convert("RGB").save(path, format="PNG", optimize=True)
     return width, height
+
+
+def compose_monsters(
+    session: requests.Session,
+    path: Path,
+    monsters: tuple[Monster, ...],
+    icon_cache: dict[str, Image.Image],
+    timeout: float,
+    width: int,
+    height: int,
+) -> None:
+    """Composite the page's raw monster sprites at their marker coordinates."""
+    image = Image.open(path).convert("RGBA")
+    for monster in monsters:
+        if monster.icon_url not in icon_cache:
+            response = request(session, monster.icon_url, timeout)
+            icon_cache[monster.icon_url] = Image.open(io.BytesIO(response.content)).convert("RGBA")
+        icon = icon_cache[monster.icon_url].copy()
+        icon.thumbnail((DEFAULT_MARKER_WIDTH, DEFAULT_MARKER_HEIGHT), Image.Resampling.LANCZOS)
+        left = round(monster.x / 100 * width - DEFAULT_MARKER_WIDTH / 2 + (DEFAULT_MARKER_WIDTH - icon.width) / 2)
+        top = round(monster.y / 100 * height - DEFAULT_MARKER_HEIGHT + (DEFAULT_MARKER_HEIGHT - icon.height) / 2)
+        image.alpha_composite(icon, (left, top))
+    image.convert("RGB").save(path, format="PNG", optimize=True)
 
 
 def write_label(path: Path, monsters: tuple[Monster, ...], classes: dict[str, int], width: int, height: int) -> None:
@@ -227,6 +253,7 @@ def main() -> None:
         raise SystemExit("No map detail pages found")
 
     classes: dict[str, int] = {}
+    icon_cache: dict[str, Image.Image] = {}
     exported = 0
     skipped = 0
     for index, (map_id, link) in enumerate(links, start=1):
@@ -242,6 +269,7 @@ def main() -> None:
             image_path = output / "images" / f"map-{map_id}.png"
             label_path = output / "labels" / f"map-{map_id}.txt"
             width, height = download_image(session, page.image_url, image_path, args.timeout, page.width, page.height)
+            compose_monsters(session, image_path, page.monsters, icon_cache, args.timeout, width, height)
             write_label(label_path, page.monsters, classes, width, height)
             exported += 1
             print(f"[{index}/{len(links)}] exported {map_id}: {len(page.monsters)} monster(s)")
