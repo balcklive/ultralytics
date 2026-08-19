@@ -69,10 +69,25 @@ def set_version(url: str, version: str | None) -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def request(session: requests.Session, url: str, timeout: float) -> requests.Response:
+    """Request a URL with bounded retry-after handling for rate limits."""
+    for attempt in range(4):
+        response = session.get(url, timeout=timeout)
+        if response.status_code != 429 or attempt == 3:
+            response.raise_for_status()
+            return response
+        retry_after = response.headers.get("Retry-After", "2")
+        try:
+            wait = min(10.0, max(1.0, float(retry_after)))
+        except ValueError:
+            wait = 2.0
+        time.sleep(wait)
+    raise RuntimeError(f"Request failed after retries: {url}")
+
+
 def get_text(session: requests.Session, url: str, timeout: float) -> str:
     """Download a UTF-8 HTML page."""
-    response = session.get(url, timeout=timeout)
-    response.raise_for_status()
+    response = request(session, url, timeout)
     response.encoding = "utf-8"
     return response.text
 
@@ -132,8 +147,7 @@ def download_image(
     session: requests.Session, url: str, path: Path, timeout: float, width: int, height: int
 ) -> tuple[int, int]:
     """Download, scale, and flatten a map image onto the page background."""
-    response = session.get(url, timeout=timeout)
-    response.raise_for_status()
+    response = request(session, url, timeout)
     source = Image.open(io.BytesIO(response.content)).convert("RGBA")
     width = width or source.width
     height = height or source.height
@@ -171,7 +185,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", help="Site data version, for example CMSC or CMS079")
     parser.add_argument("--map-id", action="append", help="Export only this map ID; repeat for multiple IDs")
     parser.add_argument("--limit", type=int, help="Maximum number of map detail pages to inspect")
-    parser.add_argument("--delay", type=float, default=0.2, help="Delay between requests in seconds")
+    parser.add_argument("--delay", type=float, default=0.5, help="Delay between requests in seconds")
     parser.add_argument("--timeout", type=float, default=30, help="Request timeout in seconds")
     parser.add_argument("--overwrite", action="store_true", help="Allow writing into a non-empty output directory")
     return parser.parse_args()
