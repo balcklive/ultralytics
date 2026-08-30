@@ -22,6 +22,24 @@ import yaml
 from PIL import Image, ImageDraw, ImageFont
 
 CLASS_NAMES = ("monster", "player")
+ENGLISH_MONSTER_NAMES = {
+    "特殊小石球": "special_small_stone_ball", "蜗牛": "snail", "蓝蜗牛": "blue_snail", "蘑菇仔": "mushroom_boy",
+    "木妖": "tree_stump", "红蜗牛": "red_snail", "花蘑菇": "orange_mushroom", "绿水灵": "slime", "猪猪": "pig",
+    "铁甲猪": "iron_boar", "蘑菇王": "mushroom_king", "蝴蝶精": "fairy", "漂漂猪": "ribbon_pig", "蓝蘑菇": "blue_mushroom",
+    "绿蘑菇": "green_mushroom", "斧木妖": "axe_stump", "刺蘑菇": "spike_mushroom", "猴子": "monkey", "无魂猴": "soulless_monkey",
+    "风独眼兽": "wind_eye_beast", "巫婆": "witch", "黑木妖": "black_stump", "冰独眼兽": "ice_eye_beast", "黑斧木妖": "black_axe_stump",
+    "野猪": "wild_boar", "古木妖": "ancient_stump", "木面怪人": "wood_mask_man", "石面怪人": "stone_mask_man", "石膏犬": "plaster_hound",
+    "木乃伊犬": "mummy_dog", "石膏士兵": "plaster_soldier", "石膏士官": "plaster_officer", "石膏指挥官": "plaster_commander",
+    "幼魔精灵2": "young_imp_spirit_2", "幼魔精灵": "young_imp_spirit", "钢甲猪": "steel_boar", "三眼章鱼": "three_eye_octopus",
+    "蓝水灵": "blue_slime", "蝙蝠": "bat", "小幽灵": "small_ghost", "大幽灵": "big_ghost", "谢尔德": "shield", "青蛇": "green_snake",
+    "黑石头人": "black_golem", "混种石头人": "mixed_golem", "无魂蘑菇": "soulless_mushroom", "火独眼兽": "fire_eye_beast",
+    "无魂蘑菇王": "soulless_mushroom_king", "青龙": "green_dragon", "土龙": "earth_dragon", "怪猫": "monster_cat", "冰龙": "ice_dragon",
+    "黑恐龙": "black_dinosaur", "月牙牛魔王": "crescent_cow_demon", "长枪牛魔王": "spear_cow_demon", "蝙蝠怪": "giant_bat",
+    "火野猪": "fire_boar", "赤龙": "red_dragon", "石头人": "rock_golem", "鳄鱼": "crocodile", "黑鳄鱼": "black_crocodile",
+    "火独眼兽2": "fire_eye_beast_2", "无魂蘑菇2": "soulless_mushroom_2", "刺蘑菇2": "spike_mushroom_2", "风独眼兽2": "wind_eye_beast_2",
+    "火野猪2": "fire_boar_2", "猴子2": "monkey_2", "蓝蘑菇2": "blue_mushroom_2", "冰独眼兽2": "ice_eye_beast_2", "红螃蟹": "red_crab",
+    "青螃蟹": "green_crab", "乌龟": "turtle",
+}
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 
 _CJK_FONT_PATHS = (
@@ -216,6 +234,49 @@ def save_review_images(
             )
     write_image(review_output / image_name, annotated)
     return manifest
+
+
+def export_instances(args: argparse.Namespace) -> None:
+    """Export one labeled instance image per class, grouped by the class name."""
+    dataset = Path(args.dataset)
+    images_root, labels_root = dataset / "images", dataset / "labels"
+    config = yaml.safe_load((dataset / "dataset.yaml").read_text(encoding="utf-8"))
+    raw_names = config.get("names", {})
+    names = {int(k): v for k, v in raw_names.items()} if isinstance(raw_names, dict) else dict(enumerate(raw_names))
+    folder_names = {cls: ENGLISH_MONSTER_NAMES.get(name, f"class_{cls}") for cls, name in names.items()}
+    output = Path(args.output) if args.output else dataset / "instances"
+    if output.exists() and any(output.iterdir()) and not args.overwrite:
+        raise SystemExit(f"Output is not empty: {output}. Use --overwrite to rebuild it.")
+    if args.overwrite:
+        shutil.rmtree(output, ignore_errors=True)
+    for name in folder_names.values():
+        (output / name).mkdir(parents=True, exist_ok=True)
+
+    saved = 0
+    for source in image_files(images_root):
+        image = read_image(source)
+        if image is None:
+            continue
+        height, width = image.shape[:2]
+        relative = source.relative_to(images_root)
+        label_path = (labels_root / relative).with_suffix(".txt")
+        if not label_path.exists():
+            label_path = labels_root / f"{source.stem}.txt"
+        for cls, (x1, y1, x2, y2) in read_labels(label_path, width, height):
+            if cls not in names or (output / folder_names[cls] / f"{folder_names[cls]}.png").exists():
+                continue
+            x1, y1 = max(0, x1 - args.margin), max(0, y1 - args.margin)
+            x2, y2 = min(width, x2 + args.margin), min(height, y2 + args.margin)
+            crop = image[y1:y2, x1:x2]
+            if crop.size == 0:
+                continue
+            if max(crop.shape[:2]) < args.min_size:
+                scale = args.min_size / max(crop.shape[:2])
+                crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+            write_image(output / folder_names[cls] / f"{folder_names[cls]}.png", crop, ".png")
+            saved += 1
+            break
+    print(f"Exported {saved}/{len(names)} class images -> {output.resolve()}")
 
 
 class OldLabelReviewer:
@@ -985,6 +1046,13 @@ def main() -> None:
         "--class-id", type=int, default=None, help="only apply one class; omit to apply every class"
     )
     apply_review.set_defaults(func=apply_crop_review)
+    instances = sub.add_parser("export-instances", help="export one labeled image per class")
+    instances.add_argument("--dataset", type=Path, required=True)
+    instances.add_argument("--output", type=Path, default=None, help="defaults to <dataset>/instances")
+    instances.add_argument("--margin", type=int, default=4, help="extra source pixels around each box")
+    instances.add_argument("--min-size", type=int, default=96, help="nearest-neighbor upscale for small crops")
+    instances.add_argument("--overwrite", action="store_true")
+    instances.set_defaults(func=export_instances)
     merge = sub.add_parser("merge-dataset", help="copy a source dataset into a target dataset, reusing existing data")
     merge.add_argument("--target", type=Path, required=True, help="existing dataset to merge into")
     merge.add_argument("--source", type=Path, required=True, help="new dataset to merge from")
