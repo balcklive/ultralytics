@@ -44,3 +44,46 @@
     model=weights/best.pt `
     source=data/images `
     conf=0.25
+
+
+#==== 73 类标注校核流程（详见 docs/annotation_review_workflow.md）====
+
+ # ① 构建 73 类主数据集（首次；--overwrite 重建会清空手动标注）
+.venv\Scripts\python.exe tools/yolo_data.py build-73-dataset `
+    --output data/annotated_73 `
+    --images data/images data/new_images `
+    --names-yaml datasets/mxdzlk_cmsc_player_mirror/dataset.yaml `
+    --inherit-player data/old_yolo_dataset data/new_yolo_dataset `
+    --inherit-monster 9:2
+
+ # ② 旧模型(73类)自动识别新图片
+.venv\Scripts\python.exe tools/yolo_data.py auto-label `
+    --images data/new_images `
+    --old-model weights/20260823/best.pt `
+    --output data/new_yolo_73 `
+    --review-output data/new_yolo_73_review
+
+ # ③ 手动删除 data/new_yolo_73_review/crops/<类别>/ 下错误截图
+
+ # ④ 回填删除到标签
+.venv\Scripts\python.exe tools/yolo_data.py apply-crop-review `
+    --dataset data/new_yolo_73 `
+    --crops data/new_yolo_73_review/crops
+
+ # ⑤ 手动补框（画框后直接输数字定类）
+.venv\Scripts\python.exe tools/yolo_data.py annotate --dataset data/new_yolo_73 --split train
+.venv\Scripts\python.exe tools/yolo_data.py annotate --dataset data/new_yolo_73 --split val
+
+ # ⑥ 合并精修结果到主数据集（--overwrite 覆盖已有图片标签；建议先备份 labels）
+.venv\Scripts\python.exe tools/yolo_data.py merge-dataset `
+    --target data/annotated_73 `
+    --source data/new_yolo_73 `
+    --overwrite
+
+ # ⑦ 用基础权重重新训练 73 类模型
+.venv\Scripts\python.exe tools/yolo_data.py train `
+    --dataset data/annotated_73 `
+    --model models/yolo26s.pt `
+    --epochs 100 `
+    --imgsz 640 `
+    --device cpu
