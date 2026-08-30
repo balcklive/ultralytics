@@ -22,23 +22,23 @@ import yaml
 from PIL import Image, ImageDraw, ImageFont
 
 CLASS_NAMES = ("monster", "player")
-ENGLISH_MONSTER_NAMES = {
-    "特殊小石球": "special_small_stone_ball", "蜗牛": "snail", "蓝蜗牛": "blue_snail", "蘑菇仔": "mushroom_boy",
-    "木妖": "tree_stump", "红蜗牛": "red_snail", "花蘑菇": "orange_mushroom", "绿水灵": "slime", "猪猪": "pig",
-    "铁甲猪": "iron_boar", "蘑菇王": "mushroom_king", "蝴蝶精": "fairy", "漂漂猪": "ribbon_pig", "蓝蘑菇": "blue_mushroom",
-    "绿蘑菇": "green_mushroom", "斧木妖": "axe_stump", "刺蘑菇": "spike_mushroom", "猴子": "monkey", "无魂猴": "soulless_monkey",
-    "风独眼兽": "wind_eye_beast", "巫婆": "witch", "黑木妖": "black_stump", "冰独眼兽": "ice_eye_beast", "黑斧木妖": "black_axe_stump",
-    "野猪": "wild_boar", "古木妖": "ancient_stump", "木面怪人": "wood_mask_man", "石面怪人": "stone_mask_man", "石膏犬": "plaster_hound",
-    "木乃伊犬": "mummy_dog", "石膏士兵": "plaster_soldier", "石膏士官": "plaster_officer", "石膏指挥官": "plaster_commander",
-    "幼魔精灵2": "young_imp_spirit_2", "幼魔精灵": "young_imp_spirit", "钢甲猪": "steel_boar", "三眼章鱼": "three_eye_octopus",
-    "蓝水灵": "blue_slime", "蝙蝠": "bat", "小幽灵": "small_ghost", "大幽灵": "big_ghost", "谢尔德": "shield", "青蛇": "green_snake",
-    "黑石头人": "black_golem", "混种石头人": "mixed_golem", "无魂蘑菇": "soulless_mushroom", "火独眼兽": "fire_eye_beast",
-    "无魂蘑菇王": "soulless_mushroom_king", "青龙": "green_dragon", "土龙": "earth_dragon", "怪猫": "monster_cat", "冰龙": "ice_dragon",
-    "黑恐龙": "black_dinosaur", "月牙牛魔王": "crescent_cow_demon", "长枪牛魔王": "spear_cow_demon", "蝙蝠怪": "giant_bat",
-    "火野猪": "fire_boar", "赤龙": "red_dragon", "石头人": "rock_golem", "鳄鱼": "crocodile", "黑鳄鱼": "black_crocodile",
-    "火独眼兽2": "fire_eye_beast_2", "无魂蘑菇2": "soulless_mushroom_2", "刺蘑菇2": "spike_mushroom_2", "风独眼兽2": "wind_eye_beast_2",
-    "火野猪2": "fire_boar_2", "猴子2": "monkey_2", "蓝蘑菇2": "blue_mushroom_2", "冰独眼兽2": "ice_eye_beast_2", "红螃蟹": "red_crab",
-    "青螃蟹": "green_crab", "乌龟": "turtle",
+MONSTER_FOLDER_NAMES = {
+    "特殊小石球": "te_shu_xiao_shi_qiu", "蜗牛": "wo_niu", "蓝蜗牛": "lan_wo_niu", "蘑菇仔": "mo_gu_zai",
+    "木妖": "mu_yao", "红蜗牛": "hong_wo_niu", "花蘑菇": "hua_mo_gu", "绿水灵": "lv_shui_ling", "猪猪": "zhu_zhu",
+    "铁甲猪": "tie_jia_zhu", "蘑菇王": "mo_gu_wang", "蝴蝶精": "hu_die_jing", "漂漂猪": "piao_piao_zhu", "蓝蘑菇": "lan_mo_gu",
+    "绿蘑菇": "lv_mo_gu", "斧木妖": "fu_mu_yao", "刺蘑菇": "ci_mo_gu", "猴子": "hou_zi", "无魂猴": "wu_hun_hou",
+    "风独眼兽": "feng_du_yan_shou", "巫婆": "wu_po", "黑木妖": "hei_mu_yao", "冰独眼兽": "bing_du_yan_shou", "黑斧木妖": "hei_fu_mu_yao",
+    "野猪": "ye_zhu", "古木妖": "gu_mu_yao", "木面怪人": "mu_mian_guai_ren", "石面怪人": "shi_mian_guai_ren", "石膏犬": "shi_gao_quan",
+    "木乃伊犬": "mu_nai_yi_quan", "石膏士兵": "shi_gao_shi_bing", "石膏士官": "shi_gao_shi_guan", "石膏指挥官": "shi_gao_zhi_hui_guan",
+    "幼魔精灵2": "you_mo_jing_ling_2", "幼魔精灵": "you_mo_jing_ling", "钢甲猪": "gang_jia_zhu", "三眼章鱼": "san_yan_zhang_yu",
+    "蓝水灵": "lan_shui_ling", "蝙蝠": "bian_fu", "小幽灵": "xiao_you_ling", "大幽灵": "da_you_ling", "谢尔德": "xie_er_de", "青蛇": "qing_she",
+    "黑石头人": "hei_shi_tou_ren", "混种石头人": "hun_zhong_shi_tou_ren", "无魂蘑菇": "wu_hun_mo_gu", "火独眼兽": "huo_du_yan_shou",
+    "无魂蘑菇王": "wu_hun_mo_gu_wang", "青龙": "qing_long", "土龙": "tu_long", "怪猫": "guai_mao", "冰龙": "bing_long",
+    "黑恐龙": "hei_kong_long", "月牙牛魔王": "yue_ya_niu_mo_wang", "长枪牛魔王": "chang_qiang_niu_mo_wang", "蝙蝠怪": "bian_fu_guai",
+    "火野猪": "huo_ye_zhu", "赤龙": "chi_long", "石头人": "shi_tou_ren", "鳄鱼": "e_yu", "黑鳄鱼": "hei_e_yu",
+    "火独眼兽2": "huo_du_yan_shou_2", "无魂蘑菇2": "wu_hun_mo_gu_2", "刺蘑菇2": "ci_mo_gu_2", "风独眼兽2": "feng_du_yan_shou_2",
+    "火野猪2": "huo_ye_zhu_2", "猴子2": "hou_zi_2", "蓝蘑菇2": "lan_mo_gu_2", "冰独眼兽2": "bing_du_yan_shou_2", "红螃蟹": "hong_pang_xie",
+    "青螃蟹": "qing_pang_xie", "乌龟": "wu_gui",
 }
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 
@@ -243,7 +243,7 @@ def export_instances(args: argparse.Namespace) -> None:
     config = yaml.safe_load((dataset / "dataset.yaml").read_text(encoding="utf-8"))
     raw_names = config.get("names", {})
     names = {int(k): v for k, v in raw_names.items()} if isinstance(raw_names, dict) else dict(enumerate(raw_names))
-    folder_names = {cls: ENGLISH_MONSTER_NAMES.get(name, f"class_{cls}") for cls, name in names.items()}
+    folder_names = {cls: MONSTER_FOLDER_NAMES.get(name, f"class_{cls}") for cls, name in names.items()}
     output = Path(args.output) if args.output else dataset / "instances"
     if output.exists() and any(output.iterdir()) and not args.overwrite:
         raise SystemExit(f"Output is not empty: {output}. Use --overwrite to rebuild it.")
