@@ -86,7 +86,7 @@
 | `tools/yolo_data.py` | 数据集构建/合并/审核/训练：`merge-dataset`（下一圈并入）、`annotate`（OpenCV 整帧标注器）、`train`（启动 YOLO 训练） |
 | `tools/template_match.py` | 模板匹配基准测试（全图搜索已弃用，P=0.045 证据） |
 | `tools/vlm_classify.py` | 豆包 VL 73 类直判实验工具（52.5% 证据；VLM 已统一走 Codex） |
-| `artifacts/test_openai_vision.py` | Codex 后端（gpt-5.6-luna）视觉调用参考实现；`auto_label.py` 的 `_codex_vlm()` 由此改来 |
+| `tools/test_openai_vision.py` | Codex 后端（gpt-5.6-luna）视觉调用参考实现；`auto_label.py` 的 `_codex_vlm()` 由此改来（原在 `artifacts/`，2026-09-02 迁至 `tools/`） |
 
 依赖：`pypinyin`（已 `uv add`）；GPT 视觉走 `~/.codex/auth.json` + 本地代理 127.0.0.1:7890
 （带 3 次网络重试）；豆包 VL 仅 `vlm_classify.py` 留作基准。
@@ -303,8 +303,10 @@ cmsc 训练集 GT 无标反（cmsc id 空间 1=蜗牛/2=蓝蜗牛/5=红蜗牛，
 2. ~~蜗牛家族定夺~~ ✅ 见 6-P0。
 3. ~~apply-review 回填 + 数据集~~ ✅ 见 SOP 第 3~4 步。
 4. ~~v1 训练~~ ✅ mAP50 0.788（SOP 第 8 步）。
-5. **飞轮第二圈**：新录像（最好换地图/时段）→ SOP 全流程 → 验证 v1 在新域的
-   auto_yolo_high 占比与精度 → merge-dataset 并入 → v2。
+5. **飞轮第二圈（火焰之地Ⅴ）** ✅ 见第 9 节：新域（地图 106000140，猴子/火野猪/
+   黑斧木妖）无可用模型 → **冷启动工作流**（抽帧人工标注 + 小模型预填 + 人工复核）
+   → hyd5-v3（mAP50 0.725）→ merge-dataset 并入主数据集 data/wgc_review（train 101 帧）。
+   原数据备份 `data/backup_hyd5_20260902/`。
 6. **漏检补充检测自动化**（6-P4）：跟踪器回填 + 运动检测候选源。
 7. **性能优化**（需要时）：模板库按地图瘦身、跟踪器轨迹复用（与第 6 项共用改造）。
 8. **player 类补样本**：v1 的 player 召回 0.40，后续批次有意识多补 player 框。
@@ -340,5 +342,60 @@ uv run python tools/yolo_data.py train --dataset data/<批复核集> \
     --model <上一圈best.pt> --epochs 50 --imgsz 640 \
     --name <新版本名> --device cpu
 ```
+
+---
+
+## 9. 飞轮第二圈：火焰之地Ⅴ 冷启动工作流（2026-09-01 ~ 09-02）
+
+> 与 wgc（第一圈，已有可用模型走全量管线）不同，火焰之地是新地图域，
+> **v1 模型在新域几乎整类归零**（猴子 0/黑斧木妖 0/斧木妖 0，仅火野猪 2 个）——
+> 重新印证结论 4。此工作流记录"无现成模型域"时的**冷启动 + 主动学习闭环**。
+
+### 9.1 输入与判定
+
+- 录像 `data/record/5396b6345c66e91c4965c5ad946cd88d_raw.mp4`：1368x800@30fps，120s。
+- 地图 = **火焰之地Ⅴ（map-106000140）**：bot-cs 出没表 猴子(14)/火野猪(30)/黑斧木妖(16)。
+  用 VLM 抽帧判读核对出没表与实拍一致（VLM 多帧判读不稳定，需多次采样交叉验证）。
+- 目标类 id：猴子 18 / 火野猪 57 / 黑斧木妖 24 / 斧木妖 16 / player 0（全部在 73 类空间内）。
+
+### 9.2 流程（冷启动 4 轮迭代）
+
+| 轮 | 步骤 | 产物 |
+|---|---|---|
+| 0 | **VLM 逐帧标注尝试 → 放弃**：VLM 坐标定位不可靠（红框框到背景）、漏检严重（几乎只出火野猪，猴子/黑斧木妖漏检）、误判出没表外类（花蘑菇×8）。**结论：VLM 不能做新域冷启动的自动标注源**，只宜做人工标注的辅助参考 | 弃用 |
+| 1 | 抽帧 15 + **frame_review 人工标注**（`--classes "猴子,火野猪,黑斧木妖"` 过滤面板）→ hyd5-v0 训练 | 15 帧 / 53 框，v0 mAP50 0.325 |
+| 2 | 补后半段帧 18 + **hyd5-v1 自动识别火野猪预填** → 人工复核补充 → 重训 | 33 帧，v1 mAP50 0.652 / 火野猪 0.88 |
+| 3 | **全片覆盖**：补帧 2020-3590 共 26 → hyd5-v2 预填（只预填怪物，**不预填 player**——实测 player 误检率高）+ 人工复核 | 47 帧，v2 mAP50 0.650 |
+| 4 | **重切全片 train/val**（保证黑斧木妖/猴子进 val）→ hyd5-v3 | **hyd5-v3 mAP50 0.725** / 火野猪 0.995 / 黑斧木妖 0.745 |
+
+### 9.3 关键经验
+
+1. **冷启动正确姿势 = 人工画框 + 小模型预填 + 人工复核**，不是 VLM 自动标注。
+   VLM 定位精度不足以直接生成标注（框错/漏检/误判出没表外类）。
+2. **预填只做怪物、不做 player**：新域 player 形态杂（火焰之地多玩家），模型 player 误检率高，
+   预填反而增加删除负担；player 由人工直接标。
+3. **标注密度**：每 2 秒 1 帧 + dHash 去重足够，逐帧（30fps）标注无信息增益。
+4. **跨域模板失配仍在**：模板库（icon 合成域）对新域帧 NCC 仅 0.741（域内应 >0.93）。
+   本次因走"训练模型"路线绕开了模板依赖；后续全量管线需 `build-templates` 补新域模板。
+5. **旧域残留误检随样本增多自然消失**：hyd5-v3 在未训练帧上不再检出水灵/蘑菇仔等 wgc 类。
+6. **frame_review 面板过滤**：73 类超出面板可视高度（前 25 类），新增 `--classes` 只显示本地图类
+   （自动含 player），滚轮在面板内滚动类别列表。见 tools/CLAUDE.md。
+
+### 9.4 合并与备份
+
+```bash
+# 合并进主数据集（要求两边 dataset.yaml 73 类名完全一致，已满足）
+uv run python tools/yolo_data.py merge-dataset --target data/wgc_review --source data/hyd5_coldstart
+# 备份原始数据目录（合并前执行）
+cp -r data/hyd5_coldstart data/backup_hyd5_20260902/
+```
+
+- 合并后主数据集 `data/wgc_review`：train 101 帧 / val 23 帧（原 wgc 67+10，新增 hyd5 34+13）。
+- 备份保留在 `data/backup_hyd5_20260902/`（未跟踪，gitignore 由 `/data/` 覆盖）。
+
+### 9.5 下一步（完整训练准备）
+
+`data/wgc_review` 现含两地图域，可直接训练：
+`train --dataset data/wgc_review --model runs/train/hyd5-v3/weights/best.pt --epochs 80 --imgsz 640 --name full-v1`
 
 快速验收：`crops_vis/<类>.png` 翻拼图板（格子编号可追溯）；`labels_vis/` 翻整帧图。

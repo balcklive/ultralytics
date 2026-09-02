@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 os.environ["http_proxy"] = "http://127.0.0.1:7890"
 os.environ["https_proxy"] = "http://127.0.0.1:7890"
@@ -6,9 +7,11 @@ os.environ["https_proxy"] = "http://127.0.0.1:7890"
 import base64
 import json
 import uuid
+
 from openai import OpenAI
 
-auth = json.load(open(os.path.expanduser("~/.codex/auth.json")))
+with open(os.path.expanduser("~/.codex/auth.json"), encoding="utf-8") as f:
+    auth = json.load(f)
 client = OpenAI(
     base_url="https://chatgpt.com/backend-api/codex",
     api_key=auth["tokens"]["access_token"],
@@ -20,8 +23,9 @@ client = OpenAI(
     },
 )
 
-IMG = r"D:\07-games\ultralytics\artifacts\peek_labeled.png"
-b64 = base64.b64encode(open(IMG, "rb").read()).decode()
+# 测试图取仓库根 artifacts/（脚本位于 tools/，据此定位仓库根）
+IMG = Path(__file__).resolve().parent.parent / "artifacts" / "peek_labeled.png"
+b64 = base64.b64encode(IMG.read_bytes()).decode()
 
 input_items = [
     {

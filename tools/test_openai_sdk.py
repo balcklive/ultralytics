@@ -5,9 +5,11 @@ os.environ["https_proxy"] = "http://127.0.0.1:7890"
 
 import json
 import uuid
+
 from openai import OpenAI
 
-auth = json.load(open(os.path.expanduser("~/.codex/auth.json")))
+with open(os.path.expanduser("~/.codex/auth.json"), encoding="utf-8") as f:
+    auth = json.load(f)
 token = auth["tokens"]["access_token"]
 account_id = auth["tokens"].get("account_id", "")
 
@@ -36,7 +38,7 @@ def run(input_items, **kwargs):
     return "".join(text_parts), response_id
 
 
-user_msg = lambda t: [  # noqa: E731
+user_msg = lambda t: [
     {"role": "user", "content": [{"type": "input_text", "text": t}]}
 ]
 

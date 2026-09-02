@@ -215,3 +215,6 @@ fuzz-models/
 # Local training data and model weights
 /data/
 /models/
+
+# Auto-label pipeline debug artifacts (generated outputs; source moved to tools/)
+/artifacts/

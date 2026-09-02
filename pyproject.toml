@@ -80,6 +80,7 @@ dependencies = [
     "nvidia-ml-py>=12.0.0", # NVIDIA GPU monitoring https://pypi.org/project/nvidia-ml-py
     "ultralytics-thop>=2.1.6", # FLOPs computation https://github.com/ultralytics/thop
     "ultralytics-platform>=0.1.3; python_version >= '3.11'",
+    "pypinyin>=0.55.0",
 ]
 
 # Optional dependencies ------------------------------------------------------------------------------------------------

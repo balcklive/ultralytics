@@ -600,7 +600,7 @@ def build_atlas(exemplar_root, player_img=None, out=TEMPLATE_DIR / "atlas.png",
 def _codex_vlm(images_b64, prompt, model="gpt-5.6-luna"):
     """经 Codex 后端调 GPT 视觉模型（复用 ~/.codex/auth.json 登录态）。
 
-    参考 artifacts/test_openai_vision.py。返回文本或 None。
+    参考 tools/test_openai_vision.py。返回文本或 None。
     """
     import os
     import uuid
