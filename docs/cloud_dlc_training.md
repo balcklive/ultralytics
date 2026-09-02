@@ -51,6 +51,8 @@ python cloud/dlc/prepare.py --dataset data/wgc_review --out artifacts/cloud_roun
 BUCKET=mxdzlk-data ./cloud/dlc/upload.sh 20260902-r1 artifacts/cloud_round weights/20260902/best.pt
 ```
 
+> 注：`upload.sh` 上传前会自动剔除 ultralytics 生成的 `*.cache`（它们内嵌本机绝对图片路径，在 Linux 容器无效）；容器首次扫描会用容器内路径重建 cache，勿手动传 cache 上去。
+
 ## 4. 步骤 ③ 提交 DLC 任务
 
 PAI 控制台 → 分布式训练（DLC）→ 新建任务。参考配置（菜单名随地域/版本略异）：
@@ -107,6 +109,7 @@ ls weights/20260902-cloud/          # best.pt / best.onnx / best.names / runs/<R
 | 症状 | 排查 |
 |---|---|
 | 容器报 `dataset.yaml not found` | `DATA_DIR` 指向的是含 dataset.yaml 的目录（`datasets/<round>`），不是更上层 |
+| 图片加载/缓存路径报错 | 数据里残留本机生成的 `*.cache`（内嵌 Windows 绝对路径）；重新 `prepare.py`+`upload.sh` 上传，或本地 `find <dir> -name '*.cache' -delete` 后重传 |
 | `base weights not found` | `BASE_PT` 是容器内 `/mnt/data/...` 路径，需先跑 upload.sh |
 | OSS 里看不到输出 | 读挂载权限/RAM role（`AliyunPAIAccessingOSSRole`）；结尾 `done.marker` 未出现=训练中断 |
 | 镜像拉取慢/失败 | `PYPI_MIRROR` 指国内 PyPI；确认 ACR 已授权 DLC 拉取（公开或填账号密码） |

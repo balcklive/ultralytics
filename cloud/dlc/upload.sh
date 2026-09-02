@@ -19,6 +19,11 @@ OSS_PREFIX="${OSS_PREFIX:-oss://${BUCKET}/mxdzlk}"
 [ -d "$DATASET_DIR" ] || { echo "dataset dir not found: $DATASET_DIR" >&2; exit 2; }
 [ -f "$BASE_PT" ] || { echo "base weights not found: $BASE_PT" >&2; exit 2; }
 
+# Strip ultralytics *.cache files before upload: they embed local absolute image
+# paths (Windows D:\...) that are invalid in the Linux container. Ultralytics
+# rebuilds the cache on first scan with container-relative paths.
+find "$DATASET_DIR" -type f -name '*.cache' -delete
+
 echo "upload dataset  $DATASET_DIR -> $OSS_PREFIX/datasets/$ROUND/"
 "$OSSUTIL" cp -r -f "$DATASET_DIR" "$OSS_PREFIX/datasets/$ROUND/"
 echo "upload base     $BASE_PT -> $OSS_PREFIX/models/base/"
