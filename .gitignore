@@ -211,3 +211,16 @@ results.csv
 fuzz-sources/
 fuzz-datasets/
 fuzz-models/
+
+# Local training data and model weights
+/data/
+/models/
+
+# Auto-label pipeline debug artifacts (generated outputs; source moved to tools/)
+/artifacts/
+
+# One-off game-data query scratch files
+/boot.json
+/result.json
+/item-list.js
+/mxdc.html

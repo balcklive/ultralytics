@@ -31,5 +31,11 @@ ENV/
 benchmarks.log
 runs/
 
+# Local data / weights (large, gitignored) — must not enter the cloud training image build context
+data/
+weights/
+datasets/
+artifacts/
+
 # Dependencies
 node_modules/
