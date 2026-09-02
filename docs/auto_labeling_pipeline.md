@@ -307,9 +307,14 @@ cmsc 训练集 GT 无标反（cmsc id 空间 1=蜗牛/2=蓝蜗牛/5=红蜗牛，
    黑斧木妖）无可用模型 → **冷启动工作流**（抽帧人工标注 + 小模型预填 + 人工复核）
    → hyd5-v3（mAP50 0.725）→ merge-dataset 并入主数据集 data/wgc_review（train 101 帧）。
    原数据备份 `data/backup_hyd5_20260902/`。
-6. **漏检补充检测自动化**（6-P4）：跟踪器回填 + 运动检测候选源。
-7. **性能优化**（需要时）：模板库按地图瘦身、跟踪器轨迹复用（与第 6 项共用改造）。
-8. **player 类补样本**：v1 的 player 召回 0.40，后续批次有意识多补 player 框。
+6. **双域主模型 full-v1** ✅（2026-09-02，见 §9.5）：从 hyd5-v3 续训 80ep，
+   mAP50 0.808，player 召回短板已修复（0.40 → 0.864），归档 `weights/20260902/`。
+7. **云端训练迁移** ✅（2026-09-02）：训练搬到 PAI-DLC 单机 GPU（本机仅 CPU），
+   实现 `cloud/dlc/`（自定义镜像 + entrypoint + prepare/upload），OSS `mxdzlk-yolo-train`
+   (cn-shanghai) 读写挂载；流程见 `docs/cloud_dlc_training.md`。
+8. **漏检补充检测自动化**（6-P4）：跟踪器回填 + 运动检测候选源。
+9. **性能优化**（需要时）：模板库按地图瘦身、跟踪器轨迹复用（与第 8 项共用改造）。
+10. **player 类样本**：v1 短板已随 wgc+hyd5 样本修复，后续新域继续有意识补 player 框。
 
 ---
 
@@ -393,9 +398,26 @@ cp -r data/hyd5_coldstart data/backup_hyd5_20260902/
 - 合并后主数据集 `data/wgc_review`：train 101 帧 / val 23 帧（原 wgc 67+10，新增 hyd5 34+13）。
 - 备份保留在 `data/backup_hyd5_20260902/`（未跟踪，gitignore 由 `/data/` 覆盖）。
 
-### 9.5 下一步（完整训练准备）
+### 9.5 双域主模型 full-v1 + 云端化（2026-09-02 ✅）
 
-`data/wgc_review` 现含两地图域，可直接训练：
-`train --dataset data/wgc_review --model runs/train/hyd5-v3/weights/best.pt --epochs 80 --imgsz 640 --name full-v1`
+对合并后的 `data/wgc_review`（train 101 / val 23，双地图域）跑完整训练（从 hyd5-v3 续训，
+YOLO26n，80ep，本机 CPU 用时 ~47min，best epoch 64）：
 
-快速验收：`crops_vis/<类>.png` 翻拼图板（格子编号可追溯）；`labels_vis/` 翻整帧图。
+```bash
+uv run python tools/yolo_data.py train --dataset data/wgc_review \
+    --model runs/train/hyd5-v3/weights/best.pt --epochs 80 --imgsz 640 --name full-v1 --device cpu
+```
+
+**结果**（`runs/train/full-v1/weights/best.pt`）：val 23 帧/189 实例，**mAP50 0.808 / mAP50-95 0.543**
+（wgc-review-v1 0.788 / hyd5-v3 0.725）。关键改善：**player R 0.864 / mAP50 0.846**
+（v1 的 player 召回 0.40 短板已修复）；绿水灵 0.972 / 蓝蜗牛 0.873 / 红蜗牛 0.833 / 火野猪 0.991；
+猴子 R 0.5（val 仅 6 实例，样本噪声大，参考价值有限）。已归档 `weights/20260902/`
+（best.pt / best.onnx / best.names）。
+
+**云端化**：本机仅 CPU，完整训练是瓶颈 → 搬到阿里云 PAI-DLC 单机 GPU。实现 `cloud/dlc/`
+（`python:3.12-slim`+uv 自定义镜像，仅含源码；`entrypoint.sh` 复用 `tools/yolo_data.py train`），
+数据流 = OSS `mxdzlk-yolo-train`(cn-shanghai) 单前缀读写挂载 `/mnt/data`
+（datasets/<round>、models/base/、out/<round>）。**完整流程见 `docs/cloud_dlc_training.md`**。
+此后第 8 步「人工启动训练」（§8 ⑤）可用云端 job 替代：`build_push.sh` → `prepare.py`+`upload.sh` → DLC 提交。
+
+快速验收（本地）：`crops_vis/<类>.png` 翻拼图板（格子编号可追溯）；`labels_vis/` 翻整帧图。
