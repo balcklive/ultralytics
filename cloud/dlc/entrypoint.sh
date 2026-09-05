@@ -15,6 +15,25 @@ IMGSZ="${IMGSZ:-640}"
 BATCH="${BATCH:--1}"
 DEVICE="${DEVICE:-0}"
 EXPORT_ONNX="${EXPORT_ONNX:-1}"
+CACHE="${CACHE:-}"
+PATIENCE="${PATIENCE:-}"
+CLOSE_MOSAIC="${CLOSE_MOSAIC:-}"
+COS_LR="${COS_LR:-0}"
+WORKERS="${WORKERS:-}"
+PRINT_ONLY="${PRINT_ONLY:-0}"
+
+# Assemble optional train hyperparams (only emit flags, never bare values).
+extra_args=()
+[ -n "$CACHE" ] && extra_args+=(--cache "$CACHE")
+[ -n "$PATIENCE" ] && extra_args+=(--patience "$PATIENCE")
+[ -n "$CLOSE_MOSAIC" ] && extra_args+=(--close-mosaic "$CLOSE_MOSAIC")
+[ "$COS_LR" = "1" ] && extra_args+=(--cos-lr)
+[ -n "$WORKERS" ] && extra_args+=(--workers "$WORKERS")
+
+if [ "$PRINT_ONLY" = "1" ]; then
+  echo "PRINT python3 tools/yolo_data.py train --dataset \"$DATA_DIR\" --model \"$BASE_PT\" --epochs \"$EPOCHS\" --imgsz \"$IMGSZ\" --batch \"$BATCH\" --device \"$DEVICE\" --project \"$OUT_DIR/runs\" --name \"$RUN_NAME\" ${extra_args[*]}"
+  exit 0
+fi
 
 cd /workspace
 PY=.venv/bin/python
@@ -34,7 +53,8 @@ echo "   base = ${BASE_PT}"
   --batch "$BATCH" \
   --device "$DEVICE" \
   --project "$OUT_DIR/runs" \
-  --name "$RUN_NAME"
+  --name "$RUN_NAME" \
+  "${extra_args[@]}"
 
 mkdir -p "$OUT_DIR"
 cp -f "$OUT_DIR/runs/$RUN_NAME/weights/best.pt" "$OUT_DIR/best.pt"
