@@ -420,4 +420,6 @@ uv run python tools/yolo_data.py train --dataset data/wgc_review \
 （datasets/<round>、models/base/、out/<round>）。**完整流程见 `docs/cloud_dlc_training.md`**。
 此后第 8 步「人工启动训练」（§8 ⑤）可用云端 job 替代：`build_push.sh` → `prepare.py`+`upload.sh` → DLC 提交。
 
+**跨多图迭代（2026-09-05 起）**：改按「每图一夹」组织，新图数据落 `data/maps/<地图>/`（每夹 images/{train,val}+labels/{train,val}+dataset.yaml，names 用完整 73 类表），不再逐个并入 `wgc_review`；最终统一训练用 `tools/merge_maps.py` 合并成 `data/unified_<round>/`（id 校验+去重+重切 val 保证稀有类进 val，输出无 `path` 键），再上云端（`docs/cloud_dlc_training.md` §9）。
+
 快速验收（本地）：`crops_vis/<类>.png` 翻拼图板（格子编号可追溯）；`labels_vis/` 翻整帧图。

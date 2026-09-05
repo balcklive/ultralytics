@@ -11,7 +11,7 @@
 | 文件 | 说明 |
 | --- | --- |
 | `Dockerfile` | 训练镜像：`python:3.12-slim` + uv 建虚拟环境，torch/CUDA 走 PyPI Linux GPU wheel；仅 COPY 仓库必要源码（pyproject/uv.lock/.python-version/README/LICENSE/`ultralytics/`/`tools/`），不含数据。`ARG PYPI_MIRROR` 指国内镜像加速 |
-| `entrypoint.sh` | 镜像入口：读 env（`DATA_DIR/BASE_PT/RUN_NAME/OUT_DIR`，可选 `EPOCHS/IMGSZ/BATCH/DEVICE/EXPORT_ONNX`）跑 `tools/yolo_data.py train --device 0`，把 `best.pt`(+onnx/names) 拷到 `OUT_DIR` 顶层并落 `done.marker` 强制 JindoFuse 落盘 |
+| `entrypoint.sh` | 镜像入口：读 env（`DATA_DIR/BASE_PT/RUN_NAME/OUT_DIR`，可选 `EPOCHS/IMGSZ/BATCH/DEVICE/EXPORT_ONNX`）跑 `tools/yolo_data.py train --device 0`，把 `best.pt`(+onnx/names) 拷到 `OUT_DIR` 顶层并落 `done.marker` 强制 JindoFuse 落盘。另支持可选超参 env `CACHE/PATIENCE/CLOSE_MOSAIC/COS_LR/WORKERS`（转 `train` 对应 CLI，见 `tools/yolo_data.py`）与 `PRINT_ONLY=1`（只打印拼接后的命令不执行，供调试/测试） |
 | `build_push.sh` | `docker build -f cloud/dlc/Dockerfile .` 推 ACR；env `REGISTRY/NAMESPACE/IMAGE/TAG`（默认 tag=日期） |
 | `prepare.py` | **纯本地**数据整形：复制数据集到 `--out`，dataset.yaml **去掉 Windows 绝对 `path:` 键**（ultralytics 无 path 时以 yaml 目录为根，任意挂载路径通用），打印计数校验 |
 | `upload.sh` | 把 prepare 产物传 `oss://<bucket>/mxdzlk/datasets/<round>/`、基础权重传 `models/base/`（需 ossutil 已配置） |
@@ -29,4 +29,5 @@
 - 基础权重用每轮归档版（如 `weights/<日期>/best.pt`），不重新下载 `models/yolo26s.pt`。
 - 需要云凭据的步骤本机没有（无 aliyun/ossutil），由用户执行；脚本参数全走 env，不硬编码 bucket/region。
 - 云端改动训练/工具脚本后需 `build_push.sh` 重新构建镜像（镜像内含源码副本，非挂载）。
+- 统一大数据集训练时建议给 DLC job 设 `CACHE=ram`：数据从 OSS/JindoFuse 逐 epoch 全量读图是主要耗时瓶颈，`tools/yolo_data.py train --cache ram` 首轮后驻留内存。`CACHE` 透传依赖 `tools/yolo_data.py` 的 `--cache` 参数。
 - uv 回退策略：`uv sync --frozen` 失败时按当前平台重新解析（镜像内 lock 可漂移，不影响可复现的本地开发）。

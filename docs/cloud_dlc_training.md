@@ -75,6 +75,8 @@ PAI 控制台 → 分布式训练（DLC）→ 新建任务。参考配置（菜�
 | `RUN_NAME` | `cloud-v1` |
 | `OUT_DIR` | `/mnt/data/out/20260902-r1` |
 | `EPOCHS` | `80`（可选 `IMGSZ/BATCH/DEVICE/EXPORT_ONNX`） |
+| `CACHE` | `-`（不设则不缓存；大数据集建议 `ram`，经 `tools/yolo_data.py train --cache` 首轮后驻留内存） |
+| `PATIENCE` | `-`（早停轮数，默认取自 ultralytics）；`WORKERS`/`CLOSE_MOSAIC`/`COS_LR` 同理可选 |
 
 等价的 `dlc submit pytorchjob`（装 `dlc` 命令行后）示例：
 
@@ -121,3 +123,20 @@ ls weights/20260902-cloud/          # best.pt / best.onnx / best.names / runs/<R
 对应 `docs/auto_labeling_pipeline.md` 第 8 步「人工启动训练」的云化替代：新批复核集 `merge-dataset --target data/wgc_review` 并入后，重跑上面 ②③ 即完成新一轮云端训练，权重落 OSS 后归位 `weights/<日期>/`。
 
 相关实现：`cloud/dlc/`（文件职责见其 `CLAUDE.md`）。
+
+## 9. 统一大数据集训练（每图一夹 → merge_maps → 云）
+
+当跨多图数据积累、要一次训出主模型时，不再逐个并入 `wgc_review`，而是按「每图一夹」集中后合并：
+
+1. **本地目录**：每个地图一个文件夹 `data/maps/<地图>/`（images/{train,val} + labels/{train,val} + dataset.yaml，names 用完整 73 类表）。
+2. **合并**（本地，`python tools/merge_maps.py --dry-run ...` 先看计数/直方图/覆盖，确认后去掉 `--dry-run` 实写）：
+   ```bash
+   python tools/merge_maps.py --out data/unified_20260905 \
+     --master data/wgc_review/dataset.yaml \
+     --source data/maps/射手训练场 --source data/wgc_review --source data/annotated_73
+   ```
+   输出 `data/unified_20260905/` **不含 `path` 键**，本地可直接训、也可直接走 `upload.sh` 上传。
+3. **上云**：`upload.sh 20260905-unified data/unified_20260905 weights/<日期>/best.pt`（`prepare.py` 可跳过，因已无 `path`/`*.cache`）。
+4. **DLC job 额外设 `CACHE=ram`**：统一数据集从 OSS/JindoFuse 逐 epoch 全量读图是主要耗时瓶颈，`--cache ram` 首轮后驻留内存大幅提速。机型建议 A10/抢占式；`EPOCHS`/`PATIENCE` 按数据量调（如 >200 图可 `EPOCHS=120`）。
+
+> ⚠️ 合并前提：所有源的 `names` 表必须与 `--master`（73 类主表）**完全一致**。任何 id 空间不同源的（如 18 类拼音 `new_yolo_dataset`、`datasets/mxdzlk_cmsc` 的 `0=特殊小石球`）会被 `merge_maps.py` **拒绝**，需先人工提供 `--map-source SRC:MAP.yaml` 重映射或排除，否则类别会整体错位。
