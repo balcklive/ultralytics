@@ -42,10 +42,14 @@ COPY ultralytics ultralytics/
 COPY tools tools/
 
 # Resolve Linux GPU dependencies and ONNX export dependencies without consulting
-# the Windows-only local lock file.
+# the Windows-only local lock file. PAI's current GPU driver supports CUDA 12.4;
+# pin PyTorch to the matching CUDA wheel instead of the latest CUDA 13 wheel.
 RUN if [ -n "${PYPI_MIRROR}" ]; then export UV_DEFAULT_INDEX="${PYPI_MIRROR}"; fi; \
     uv venv /workspace/.venv && \
-    uv pip install --python /workspace/.venv/bin/python ".[export-base]"
+    uv pip install --python /workspace/.venv/bin/python \
+      --index-url https://download.pytorch.org/whl/cu124 \
+      --extra-index-url https://pypi.org/simple \
+      "torch==2.6.0" "torchvision==0.21.0" ".[export-base]"
 
 COPY cloud/dlc/entrypoint.sh /workspace/entrypoint.sh
 RUN chmod +x /workspace/entrypoint.sh
