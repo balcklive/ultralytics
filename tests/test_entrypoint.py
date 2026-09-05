@@ -15,7 +15,7 @@ def _run(env_overrides: dict[str, str]) -> str:
     env = {"PATH": "/usr/bin:/bin:/usr/local/bin", "DATA_DIR": "/mnt/data/d",
            "BASE_PT": "/mnt/data/models/base/best.pt", "RUN_NAME": "cloud-v1",
            "OUT_DIR": "/mnt/data/out/r1", "PRINT_ONLY": "1", **env_overrides}
-    proc = subprocess.run(["bash", str(ENTRY)], env=env, capture_output=True, text=True)
+    proc = subprocess.run(["bash", str(ENTRY)], env=env, capture_output=True, text=True, check=False)
     assert proc.returncode == 0, proc.stderr
     return proc.stdout
 
