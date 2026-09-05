@@ -2,7 +2,9 @@ name: Build and push training image to Aliyun ACR
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feature/aliyun-acr-workflow
   workflow_dispatch:
 
 permissions:
