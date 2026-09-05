@@ -998,20 +998,32 @@ class Annotator:
                         return
 
 
+def build_train_kwargs(args: argparse.Namespace) -> dict:
+    """Build model.train() kwargs from CLI args, forwarding only set optional hyperparams."""
+    kwargs: dict = {
+        "data": str(Path(args.dataset).resolve() / "dataset.yaml"),
+        "epochs": args.epochs,
+        "imgsz": args.imgsz,
+        "batch": args.batch,
+        "device": args.device,
+        "project": str(Path(args.project).resolve()),
+        "name": args.name,
+    }
+    if getattr(args, "cos_lr", False):
+        kwargs["cos_lr"] = True
+    for field in ("cache", "patience", "close_mosaic", "workers"):
+        value = getattr(args, field, None)
+        if value is not None:
+            kwargs[field] = value
+    return kwargs
+
+
 def train(args: argparse.Namespace) -> None:
     """Start current Ultralytics training with the generated dataset."""
     from ultralytics import YOLO
 
     model = YOLO(args.model)
-    model.train(
-        data=str(Path(args.dataset).resolve() / "dataset.yaml"),
-        epochs=args.epochs,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        device=args.device,
-        project=str(Path(args.project).resolve()),
-        name=args.name,
-    )
+    model.train(**build_train_kwargs(args))
 
 
 def main() -> None:
@@ -1095,6 +1107,16 @@ def main() -> None:
     fitting.add_argument("--device", default=None)
     fitting.add_argument("--project", default="runs/train")
     fitting.add_argument("--name", default="monster-player")
+    fitting.add_argument("--cache", default=None,
+                         help="ultralytics image cache: ram / disk / True (unset=off)")
+    fitting.add_argument("--patience", type=int, default=None,
+                         help="early-stop patches (unset=ultralytics default)")
+    fitting.add_argument("--close-mosaic", type=int, default=None,
+                         help="epoch to close mosaics (unset=ultralytics default; 0 disables)")
+    fitting.add_argument("--cos-lr", action="store_true",
+                         help="enable cosine learning rate (unset/False=off)")
+    fitting.add_argument("--workers", type=int, default=None,
+                         help="data-loader workers (unset=ultralytics default)")
     fitting.set_defaults(func=train)
     args = parser.parse_args()
     args.func(args)
