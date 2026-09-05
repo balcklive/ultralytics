@@ -33,17 +33,19 @@ RUN pip install --no-cache-dir ${PYPI_MIRROR:+--index-url ${PYPI_MIRROR}} "uv==$
 
 WORKDIR /workspace
 
-# Copy manifests first so dependency layers cache across source edits. The local
-# uv.lock is not part of the repository, so the cloud build resolves the Linux
-# environment from pyproject.toml instead.
+# Copy manifests first so dependency layers cache across source edits. The cloud
+# build installs directly from pyproject.toml because the local uv.lock targets
+# the Windows development environment.
 COPY pyproject.toml .python-version README.md LICENSE ./
 # Source subset required to run tools/yolo_data.py train (no data/weights/runs).
 COPY ultralytics ultralytics/
 COPY tools tools/
 
-# Resolve deps and build the project env for the Linux GPU runner.
+# Resolve Linux GPU dependencies and ONNX export dependencies without consulting
+# the Windows-only local lock file.
 RUN if [ -n "${PYPI_MIRROR}" ]; then export UV_DEFAULT_INDEX="${PYPI_MIRROR}"; fi; \
-    uv sync --no-dev
+    uv venv /workspace/.venv && \
+    uv pip install --python /workspace/.venv/bin/python ".[export-base]"
 
 COPY cloud/dlc/entrypoint.sh /workspace/entrypoint.sh
 RUN chmod +x /workspace/entrypoint.sh
