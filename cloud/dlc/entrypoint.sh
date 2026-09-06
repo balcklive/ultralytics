@@ -15,6 +15,13 @@ IMGSZ="${IMGSZ:-640}"
 BATCH="${BATCH:--1}"
 DEVICE="${DEVICE:-0}"
 EXPORT_ONNX="${EXPORT_ONNX:-1}"
+
+# PAI may inject RANK=0 into a one-worker job even though no DDP process group
+# is started. Ultralytics then expects a distributed sampler and crashes on the
+# regular RandomSampler. Force the one-worker case back to single-GPU mode.
+if [ "${WORLD_SIZE:-1}" = "1" ] || { [ -z "${WORLD_SIZE:-}" ] && [ "${RANK:-}" = "0" ]; }; then
+  export RANK=-1 LOCAL_RANK=-1 WORLD_SIZE=1
+fi
 CACHE="${CACHE:-}"
 PATIENCE="${PATIENCE:-}"
 CLOSE_MOSAIC="${CLOSE_MOSAIC:-}"
