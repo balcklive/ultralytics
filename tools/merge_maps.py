@@ -5,8 +5,8 @@ Each source must use the SAME class-id table as ``--master`` (default
 ``data/wgc_review/dataset.yaml``). A mismatching table is REFUSED unless an
 explicit ``--map-source SRC:MAP.yaml`` is given, so classes can never be silently
 shifted. The output dataset.yaml carries NO ``path`` key: Ultralytics roots it at
-the yaml dir, so the same copy works on the PAI-DLC OSS mount (see
-``docs/cloud_dlc_training.md``) and in local training. Duplicate frames are
+the yaml dir, so the same copy works on an AutoDL GPU instance (see
+``docs/autodl_training.md``) and in local training. Duplicate frames are
 dropped by content hash; the whole pool is re-split into train/val with a
 guarantee that every class appears in val.
 

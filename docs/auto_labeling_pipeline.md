@@ -309,9 +309,9 @@ cmsc 训练集 GT 无标反（cmsc id 空间 1=蜗牛/2=蓝蜗牛/5=红蜗牛，
    原数据备份 `data/backup_hyd5_20260902/`。
 6. **双域主模型 full-v1** ✅（2026-09-02，见 §9.5）：从 hyd5-v3 续训 80ep，
    mAP50 0.808，player 召回短板已修复（0.40 → 0.864），归档 `weights/20260902/`。
-7. **云端训练迁移** ✅（2026-09-02）：训练搬到 PAI-DLC 单机 GPU（本机仅 CPU），
-   实现 `cloud/dlc/`（自定义镜像 + entrypoint + prepare/upload），OSS `mxdzlk-yolo-train`
-   (cn-shanghai) 读写挂载；流程见 `docs/cloud_dlc_training.md`。
+7. **GPU 训练标准化** ✅（2026-09-06）：训练统一走 **AutoDL 实例**（RTX 4080，本机仅 CPU），
+   SFTP 传数据+权重 → 远端 py3.8 训练 → 拉回权重 → 本地导出 ONNX；方法见 `docs/autodl_training.md`，
+   脚本在 `cloud/autodl/`。（此前 PAI-DLC 路径已弃用删除。）
 8. **漏检补充检测自动化**（6-P4）：跟踪器回填 + 运动检测候选源。
 9. **性能优化**（需要时）：模板库按地图瘦身、跟踪器轨迹复用（与第 8 项共用改造）。
 10. **player 类样本**：v1 短板已随 wgc+hyd5 样本修复，后续新域继续有意识补 player 框。
@@ -414,12 +414,11 @@ uv run python tools/yolo_data.py train --dataset data/wgc_review \
 猴子 R 0.5（val 仅 6 实例，样本噪声大，参考价值有限）。已归档 `weights/20260902/`
 （best.pt / best.onnx / best.names）。
 
-**云端化**：本机仅 CPU，完整训练是瓶颈 → 搬到阿里云 PAI-DLC 单机 GPU。实现 `cloud/dlc/`
-（`python:3.12-slim`+uv 自定义镜像，仅含源码；`entrypoint.sh` 复用 `tools/yolo_data.py train`），
-数据流 = OSS `mxdzlk-yolo-train`(cn-shanghai) 单前缀读写挂载 `/mnt/data`
-（datasets/<round>、models/base/、out/<round>）。**完整流程见 `docs/cloud_dlc_training.md`**。
-此后第 8 步「人工启动训练」（§8 ⑤）可用云端 job 替代：`build_push.sh` → `prepare.py`+`upload.sh` → DLC 提交。
+**GPU 训练（AutoDL）**：本机仅 CPU，完整训练是瓶颈 → 标准走 **AutoDL 实例**（RTX 4080）。数据整备后
+SFTP 传数据+基础权重 → 远端 py3.8 训练 → 拉回 `best.pt` → 本地导出 `best.onnx`+`best.names` →
+归档 `weights/<日期>/`。方法见 `docs/autodl_training.md`，脚本 `cloud/autodl/`。此前 PAI-DLC 路径已弃用删除。
+第 8 步「人工启动训练」（§8 ⑤）用 AutoDL 替代：`merge_maps` → 上传 → 训练 → 拉回权重。
 
-**跨多图迭代（2026-09-05 起）**：改按「每图一夹」组织，新图数据落 `data/maps/<地图>/`（每夹 images/{train,val}+labels/{train,val}+dataset.yaml，names 用完整 73 类表），不再逐个并入 `wgc_review`；最终统一训练用 `tools/merge_maps.py` 合并成 `data/unified_<round>/`（id 校验+去重+重切 val 保证稀有类进 val，输出无 `path` 键），再上云端（`docs/cloud_dlc_training.md` §9）。
+**跨多图迭代（2026-09-05 起）**：改按「每图一夹」组织，新图数据落 `data/maps/<地图>/`（每夹 images/{train,val}+labels/{train,val}+dataset.yaml，names 用完整 73 类表），不再逐个并入 `wgc_review`；最终统一训练用 `tools/merge_maps.py` 合并成 `data/unified_<round>/`（id 校验+去重+重切 val 保证稀有类进 val，输出无 `path` 键），再上 AutoDL（`docs/autodl_training.md`）。
 
 快速验收（本地）：`crops_vis/<类>.png` 翻拼图板（格子编号可追溯）；`labels_vis/` 翻整帧图。
