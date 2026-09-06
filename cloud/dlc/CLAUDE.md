@@ -11,7 +11,7 @@
 | 文件 | 说明 |
 | --- | --- |
 | `Dockerfile` | 训练镜像：`python:3.12-slim` + uv 建虚拟环境，torch/CUDA 走 PyPI Linux GPU wheel；仅 COPY 仓库必要源码（pyproject/uv.lock/.python-version/README/LICENSE/`ultralytics/`/`tools/`），不含数据。`ARG PYPI_MIRROR` 指国内镜像加速 |
-| `entrypoint.sh` | 镜像入口：读 env（`DATA_DIR/BASE_PT/RUN_NAME/OUT_DIR`，可选 `EPOCHS/IMGSZ/BATCH/DEVICE/EXPORT_ONNX`）跑 `tools/yolo_data.py train --device 0`；单 Worker 时清除 PAI 注入的伪 DDP rank；把 `best.pt`(+onnx/names) 拷到 `OUT_DIR` 顶层并落 `done.marker` 强制 JindoFuse 落盘 |
+| `entrypoint.sh` | 镜像入口：读 env（`DATA_DIR/BASE_PT/RUN_NAME/OUT_DIR`，可选 `EPOCHS/IMGSZ/BATCH/DEVICE/EXPORT_ONNX`）跑 `tools/yolo_data.py train --device 0`；单 Worker 时清除 PAI 注入的伪 DDP rank；自动定位实际生成的最新 `best.pt`（兼容 Ultralytics 的 `-2/-3` 自动递增目录），拷到 `OUT_DIR` 顶层并落 `done.marker` 强制 JindoFuse 落盘 |
 | `build_push.sh` | `docker build -f cloud/dlc/Dockerfile .` 推 ACR；env `REGISTRY/NAMESPACE/IMAGE/TAG`（默认 tag=日期） |
 | `prepare.py` | **纯本地**数据整形：复制数据集到 `--out`，dataset.yaml **去掉 Windows 绝对 `path:` 键**（ultralytics 无 path 时以 yaml 目录为根，任意挂载路径通用），打印计数校验 |
 | `upload.sh` | 把 prepare 产物传 `oss://<bucket>/mxdzlk/datasets/<round>/`、基础权重传 `models/base/`（需 ossutil 已配置） |

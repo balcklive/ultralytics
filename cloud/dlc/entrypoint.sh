@@ -64,7 +64,14 @@ echo "   base = ${BASE_PT}"
   "${extra_args[@]}"
 
 mkdir -p "$OUT_DIR"
-cp -f "$OUT_DIR/runs/$RUN_NAME/weights/best.pt" "$OUT_DIR/best.pt"
+RUN_BEST="$OUT_DIR/runs/$RUN_NAME/weights/best.pt"
+if [ ! -f "$RUN_BEST" ]; then
+  RUN_BEST=$(find "$OUT_DIR/runs" -mindepth 3 -maxdepth 3 -type f -path '*/weights/best.pt' -printf '%T@ %p\n' \
+    | sort -nr | head -n 1 | cut -d' ' -f2-)
+fi
+[ -n "$RUN_BEST" ] && [ -f "$RUN_BEST" ] || { echo "best.pt not found under $OUT_DIR/runs" >&2; exit 3; }
+echo "== copying best weights from ${RUN_BEST} =="
+cp -f "$RUN_BEST" "$OUT_DIR/best.pt"
 
 if [ "$EXPORT_ONNX" = "1" ]; then
   echo "== exporting ONNX =="
